@@ -1,0 +1,23 @@
+{
+  "name": "domiclaw",
+  "version": "0.0.1",
+  "description": "Minimal AI agent with TUI and model API support",
+  "license": "ISC",
+  "author": "xluwang",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
