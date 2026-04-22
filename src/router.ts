@@ -4,26 +4,9 @@
  * 负责消息格式化和路由:
  * - 格式化消息为 XML（用于发送给模型）
  * - 查找对应频道
- * - 转义特殊字符
  */
+import escapeHtml from "escape-html";
 import { Channel, NewMessage } from "./types.js";
-
-/**
- * 转义 XML 特殊字符
- *
- * 需要转义的字符: & < > "
- *
- * @param s 输入字符串
- * @returns 转义后的字符串
- */
-export function escapeXml(s: string): string {
-  if (!s) return "";
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 /**
  * 格式化消息数组为 XML 字符串
@@ -36,7 +19,7 @@ export function escapeXml(s: string): string {
  *   <message sender="用户名称" time="时间">
  *     消息内容
  *   </message>
- *   <message sender="用户名称" time="时间" reply_to="原消息ID">
+ *   <message sender="用户名称" time="时间" reply_to="原消息 ID">
  *     <quoted_message from="引用者">引用内容</quoted_message>
  *     回复的消息内容
  *   </message>
@@ -54,46 +37,21 @@ export function formatMessages(messages: NewMessage[]): string {
 
     // 处理回复引用
     const replyAttr = m.reply_to_message_id
-      ? ` reply_to="${escapeXml(m.reply_to_message_id)}"`
+      ? ` reply_to="${escapeHtml(m.reply_to_message_id)}"`
       : "";
 
     // 处理引用消息内容
     const replySnippet =
       m.reply_to_message_content && m.reply_to_sender_name
-        ? `\n  <quoted_message from="${escapeXml(m.reply_to_sender_name)}">${escapeXml(m.reply_to_message_content)}</quoted_message>`
+        ? `\n  <quoted_message from="${escapeHtml(m.reply_to_sender_name)}">${escapeHtml(m.reply_to_message_content)}</quoted_message>`
         : "";
 
     // 构建消息元素
-    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}"${replyAttr}>${replySnippet}${escapeXml(m.content)}</message>`;
+    return `<message sender="${escapeHtml(m.sender_name)}" time="${escapeHtml(displayTime)}"${replyAttr}>${replySnippet}${escapeHtml(m.content)}</message>`;
   });
 
   // 包装为 messages 标签
   return `<messages>\n${lines.join("\n")}\n</messages>`;
-}
-
-/**
- * 去除内部标签
- *
- * 用于从模型输出中提取纯文本
- * <internal>...</internal> 标签用于内部标记
- *
- * @param text 文本
- * @returns 去除标签后的文本
- */
-export function stripInternalTags(text: string): string {
-  return text.replace(/<internal>[\s\S]*?<\/internal>/g, "").trim();
-}
-
-/**
- * 格式化输出文本
- *
- * @param rawText 原始文本
- * @returns 纯文本
- */
-export function formatOutbound(rawText: string): string {
-  const text = stripInternalTags(rawText);
-  if (!text) return "";
-  return text;
 }
 
 /**

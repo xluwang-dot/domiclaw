@@ -1,35 +1,12 @@
+```
 # Dependencies
 node_modules/
-dist/
+
+# Database
+store/messages.db
 
 # Environment
 .env
 .env.local
-.env.*.local
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-
-# Database
-store/
-data/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Build
-*.tsbuildinfo
-build/
-
-# Temp
-tmp/
-temp/
+*.env.*
+```

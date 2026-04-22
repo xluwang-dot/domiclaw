@@ -23,11 +23,10 @@ import {
 } from "./config.js";
 
 // 导入频道模块（自动注册 TUI/QQ 等频道）
-import "./channels/index.js";
 import {
   getChannelFactory, // 获取频道工厂函数
   getRegisteredChannelNames, // 获取已注册的频道名列表
-} from "./channels/registry.js";
+} from "./channels/index.js";
 
 // 导入 Agent 模块（调用模型 API）
 import { runAgent, AgentOutput } from "./agent.js";

@@ -9,12 +9,12 @@
  *
  * 消息格式:
  * - JID: tui:console
- * - 发送者: user
- * - 发送者名称: User
+ * - 发送者：user
+ * - 发送者名称：User
  */
 import readline from "readline";
 import { Channel, NewMessage } from "../types.js";
-import { ChannelOpts } from "./registry.js";
+import type { ChannelOpts } from "./index.js";
 import { logger } from "../logger.js";
 
 /**
@@ -27,7 +27,6 @@ export function TUIChannel(opts: ChannelOpts): Channel {
   // 回调函数
   let onMessageCb = opts.onMessage;
   let onChatMetadataCb = opts.onChatMetadata;
-  let registeredGroupsFn = opts.registeredGroups;
 
   // TUI 频道的聊天 ID
   const chatJid = "tui:console";
