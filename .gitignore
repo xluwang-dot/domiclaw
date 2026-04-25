@@ -2,6 +2,8 @@
 # Dependencies
 node_modules/
 dist/
+data/
+*log*/
 
 # Database
 store/messages.db
@@ -10,4 +12,5 @@ store/messages.db
 .env
 .env.local
 *.env.*
+*.log
 ```
