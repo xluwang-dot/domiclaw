@@ -50,6 +50,14 @@ export function TUIChannel(opts: ChannelOpts): Channel {
     rl.question("", (input) => {
       const trimmed = input.trim();
 
+      // "exit" 退出程序
+      if (trimmed.toLowerCase() === "exit") {
+        logger.info("TUI 收到 exit 命令，正在退出");
+        rl.close();
+        process.exit(0);
+        return;
+      }
+
       // 跳过空输入
       if (!trimmed) {
         sendPrompt();
@@ -97,13 +105,24 @@ export function TUIChannel(opts: ChannelOpts): Channel {
 
   /**
    * 发送消息（打印到控制台）
-   *
-   * @param jid 聊天 ID
-   * @param text 要发送的文本
    */
   async function sendMessage(jid: string, text: string): Promise<void> {
-    // 简单打印到控制台
-    console.log(`\n${text}\n`);
+    process.stdout.write(`\n${text}\n`);
+  }
+
+  /**
+   * 流式输出块 — thinking 用灰色，content 直接输出
+   */
+  async function sendChunk(
+    jid: string,
+    chunk: { thinking?: string; content?: string },
+  ): Promise<void> {
+    if (chunk.thinking) {
+      process.stdout.write(`\x1b[2m${chunk.thinking}\x1b[0m`);
+    }
+    if (chunk.content) {
+      process.stdout.write(chunk.content);
+    }
   }
 
   /**
@@ -142,5 +161,6 @@ export function TUIChannel(opts: ChannelOpts): Channel {
     isConnected,
     ownsJid,
     disconnect,
+    sendChunk,
   };
 }

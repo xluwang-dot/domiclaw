@@ -18,6 +18,7 @@ import {
   ASSISTANT_NAME, // AI 助手名称（如 "Domiclaw"）
   DEFAULT_TRIGGER, // 默认触发词（如 "@Domiclaw"）
   getTriggerPattern, // 获取触发词正则表达式
+  MAX_CONTEXT_MESSAGES, // 上下文窗口大小
   MAX_MESSAGES_PER_PROMPT, // 单次最多处理的消息数
   POLL_INTERVAL, // 消息轮询间隔（毫秒）
 } from "./config.js";
@@ -36,13 +37,24 @@ import {
   getAllChats, // 获取所有聊天记录
   getAllRegisteredGroups, // 获取所有已注册的群组
   getMessagesSince, // 获取指定时间后的消息
+  cancelScheduledTask, // 取消定时任务
+  getDueScheduledTasks, // 获取到期的定时任务
+  getRecentMessages, // 获取最近消息（上下文窗口）
   getRouterState, // 获取路由状态（如最后处理时间戳）
+  updateScheduledTaskRun, // 更新定时任务运行状态
   initDatabase, // 初始化数据库
   setRegisteredGroup, // 设置群组注册信息
   setRouterState, // 设置路由状态
   storeChatMetadata, // 存储聊天元数据
   storeMessage, // 存储消息
+  upsertSessionContext, // 更新会话上下文
 } from "./db.js";
+
+// 导入命令处理
+import { handleCommand } from "./commands.js";
+
+// 导入频率限制
+import { defaultLimiter } from "./rate-limit.js";
 
 // 导入路由模块
 import { findChannel, formatMessages } from "./router.js";
@@ -170,8 +182,39 @@ async function processMessage(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true; // 没有触发词，跳过
   }
 
-  // 5. 格式化消息为 prompt
-  const prompt = formatMessages(missedMessages);
+  // 5. 检查频率限制
+  if (!defaultLimiter.check(chatJid)) {
+    logger.warn({ chatJid }, "频率限制触发");
+    await channel.sendMessage(chatJid, "Please slow down. Try again in a moment.");
+    return true;
+  }
+
+  // 6. 检查是否为命令（本地处理，无需 API 调用）
+  const lastMsg = missedMessages[missedMessages.length - 1];
+  if (lastMsg) {
+    const cmdResult = handleCommand(lastMsg.content, {
+      chatJid,
+      groupFolder: group.folder,
+    });
+    if (cmdResult !== null) {
+      logger.info({ chatJid, cmd: lastMsg.content }, "执行命令");
+      await channel.sendMessage(chatJid, cmdResult);
+      storeMessage({
+        id: `cmd-bot-${Date.now()}`,
+        chat_jid: chatJid,
+        sender: ASSISTANT_NAME,
+        sender_name: ASSISTANT_NAME,
+        content: cmdResult,
+        timestamp: new Date().toISOString(),
+        is_bot_message: true,
+      });
+      return true;
+    }
+  }
+
+  // 7. 构建上下文感知的 prompt（最近消息 + 新消息）
+  const contextMessages = getRecentMessages(chatJid, MAX_CONTEXT_MESSAGES);
+  const prompt = formatMessages(contextMessages);
 
   // 保存处理前的游标（用于错误回滚）
   const previousCursor = lastAgentTimestamp[chatJid] || "";
@@ -201,12 +244,21 @@ async function processMessage(chatJid: string): Promise<boolean> {
     },
     // 回调：收到模型输出时发送消息
     async (result: AgentOutput) => {
-      if (result.result) {
+      if (result.isPartial) {
+        // Streaming chunk — route via sendChunk
+        await channel.sendChunk?.(chatJid, {
+          thinking: result.thinking || undefined,
+          content: result.result || undefined,
+        });
+      } else if (result.result) {
         logger.info(
-          { group: group.name },
-          `模型输出: ${result.result.length} 字符`,
+          {
+            group: group.name,
+            len: result.result.length,
+            preview: result.result.substring(0, 150),
+          },
+          "Agent response sent to channel",
         );
-        // 发送回复到频道
         await channel.sendMessage(chatJid, result.result);
       }
     },
@@ -215,7 +267,15 @@ async function processMessage(chatJid: string): Promise<boolean> {
   // 8. 隐藏输入中状态
   await channel.setTyping?.(chatJid, false);
 
-  // 9. 处理错误则回滚游标
+  // 9. 成功则更新会话上下文
+  if (output.status === "success" && output.result) {
+    // Extract a short topic hint from the conversation
+    const userText = missedMessages.map((m) => m.content).join(" ");
+    const topicHint = userText.substring(0, 120);
+    upsertSessionContext(chatJid, topicHint, null, null);
+  }
+
+  // 10. 处理错误则回滚游标
   if (output.status === "error") {
     lastAgentTimestamp[chatJid] = previousCursor;
     saveState();
@@ -282,7 +342,93 @@ async function startMessageLoop(): Promise<void> {
       logger.error({ err }, "消息循环错误");
     }
 
-    // 6. 等待后继续
+    // 6. 处理到期的定时任务
+    try {
+      const dueTasks = getDueScheduledTasks();
+      for (const task of dueTasks) {
+        const group = registeredGroups[task.chat_jid];
+        if (!group) continue;
+
+        const channel = findChannel(channels, task.chat_jid);
+        if (!channel) continue;
+
+        logger.info(
+          { taskId: task.id, type: task.schedule_type },
+          "运行定时任务",
+        );
+
+        const taskPrompt = formatMessages([{
+          id: `scheduled-${task.id}`,
+          chat_jid: task.chat_jid,
+          sender: "system",
+          sender_name: "Scheduler",
+          content: task.prompt,
+          timestamp: new Date().toISOString(),
+        } as NewMessage]);
+
+        const output = await runAgent(
+          group,
+          {
+            prompt: taskPrompt,
+            groupFolder: group.folder,
+            chatJid: task.chat_jid,
+            isMain: group.isMain === true,
+            isScheduledTask: true,
+            assistantName: ASSISTANT_NAME,
+          },
+          async (result) => {
+            if (result.isPartial) {
+              await channel.sendChunk?.(task.chat_jid, {
+                thinking: result.thinking || undefined,
+                content: result.result || undefined,
+              });
+            } else if (result.result) {
+              await channel.sendMessage(task.chat_jid, result.result);
+              // Store bot response
+              storeMessage({
+                id: `sched-bot-${Date.now()}`,
+                chat_jid: task.chat_jid,
+                sender: ASSISTANT_NAME,
+                sender_name: ASSISTANT_NAME,
+                content: result.result,
+                timestamp: new Date().toISOString(),
+                is_bot_message: true,
+              });
+            }
+          },
+        );
+
+        // Compute next run time
+        const nextRun = (() => {
+          const now = new Date();
+          if (task.schedule_type === "daily") {
+            const [h, m] = task.schedule_value.split(":").map(Number);
+            const next = new Date(now);
+            next.setHours(h, m, 0, 0);
+            if (next <= now) next.setDate(next.getDate() + 1);
+            return next.toISOString();
+          }
+          if (task.schedule_type === "interval") {
+            const min = parseInt(task.schedule_value, 10) || 60;
+            return new Date(now.getTime() + min * 60000).toISOString();
+          }
+          // once: don't reschedule
+          return "";
+        })();
+
+        if (task.schedule_type === "once") {
+          // One-shot tasks: mark completed
+          updateScheduledTaskRun(task.id, "", output.status);
+          cancelScheduledTask(task.id);
+        } else if (nextRun) {
+          updateScheduledTaskRun(task.id, nextRun, output.status);
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "定时任务错误");
+    }
+
+    // 7. 等待后继续
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
   }
 }
@@ -305,13 +451,14 @@ async function main(): Promise<void> {
   loadState();
 
   // 设置关闭处理函数
-  const shutdown = async (signal: string) => {
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     logger.info({ signal }, "收到关闭信号");
-    // 断开所有频道连接
-    for (const ch of channels) await ch.disconnect();
-    process.exit(0);
+    for (const ch of channels) ch.disconnect();
+    setTimeout(() => process.exit(0), 500);
   };
-  // 监听系统信号
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
@@ -331,6 +478,11 @@ async function main(): Promise<void> {
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     // 获取已注册群组的回调
     registeredGroups: () => registeredGroups,
+    // 更新游标（防止 polling loop 重复处理）
+    onAgentProcessed: (chatJid: string, timestamp: string) => {
+      lastAgentTimestamp[chatJid] = timestamp;
+      saveState();
+    },
   };
 
   // 3. 连接所有已注册的频道

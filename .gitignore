@@ -1,4 +1,3 @@
-```
 # Dependencies
 node_modules/
 dist/
@@ -13,4 +12,3 @@ store/messages.db
 .env.local
 *.env.*
 *.log
-```

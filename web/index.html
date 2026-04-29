@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domiclaw — Study Assistant</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1e1e1e; color: #eee; overflow: hidden; height: 100vh;
+}
+
+/* ── Canvas Layer (z=0) ── */
+.canvas-layer {
+  position: fixed; inset: 0; z-index: 0;
+}
+.canvas-transform {
+  position: absolute; top: 0; left: 0; width: 5000px; height: 5000px;
+  will-change: transform;
+}
+.grid-bg {
+  position: absolute; width: 5000px; height: 5000px;
+  background-image: radial-gradient(circle, #666 2px, transparent 2px);
+  background-size: 50px 50px; opacity: 0.7; pointer-events: none;
+}
+.edges-svg {
+  position: absolute; top: 0; left: 0; width: 5000px; height: 5000px;
+  pointer-events: none;
+}
+.edges-svg path { pointer-events: stroke; cursor: pointer; }
+
+.graph-node {
+  position: absolute; border-radius: 8px; cursor: pointer; user-select: none;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.graph-node:hover { box-shadow: 0 0 16px rgba(10,132,255,0.4); }
+.graph-node.subject {
+  background: #2d4a7a; border: 2px solid #4a90d9; color: #fff;
+  min-width: 140px; text-align: center; padding: 12px 16px; font-weight: 700;
+  font-size: 15px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.graph-node.kp {
+  background: #3a5a3a; border: 2px solid #5a9a5a; color: #cfc;
+  min-width: 120px; padding: 8px 12px; font-size: 13px;
+}
+.graph-node.kp.has-wrong { border-color: #e05555; box-shadow: 0 0 8px rgba(224,85,85,0.3); }
+.node-label { pointer-events: none; }
+.node-count {
+  font-size: 11px; opacity: 0.7; margin-top: 4px;
+}
+
+/* ── Chat Panel (z=1, left) ── */
+.chat-panel {
+  position: fixed; left: 16px; top: 16px; bottom: 16px; width: 360px;
+  z-index: 1; background: rgba(30,30,30,0.92); border: 1px solid #444;
+  border-radius: 12px; display: flex; flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+.chat-header {
+  padding: 12px 16px; border-bottom: 1px solid #444;
+  font-weight: 600; font-size: 14px; color: #aaa;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.chat-toggle-btn {
+  position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
+  z-index: 2; background: rgba(45,45,45,0.9); border: 1px solid #555;
+  color: #aaa; font-size: 18px; padding: 16px 6px; border-radius: 0 8px 8px 0;
+  cursor: pointer; transition: 0.15s;
+}
+.chat-toggle-btn:hover { background: #0a84ff; color: #fff; }
+.chat-toggle-close {
+  background: none; border: none; color: #888; font-size: 18px;
+  cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.chat-toggle-close:hover { color: #fff; }
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.chat-msg {
+  max-width: 85%; padding: 8px 12px; border-radius: 10px;
+  font-size: 14px; line-height: 1.5; word-break: break-word;
+}
+.chat-msg.user {
+  align-self: flex-end; background: #0a84ff; color: #fff;
+  border-bottom-right-radius: 2px;
+}
+.chat-msg.bot {
+  align-self: flex-start; background: #3a3a3a; color: #ddd;
+  border-bottom-left-radius: 2px;
+}
+.chat-msg.thinking {
+  align-self: flex-start; background: #2a2a2a; color: #999;
+  font-style: italic; border-left: 2px solid #666;
+  font-size: 13px;
+}
+.chat-input-area {
+  padding: 12px; border-top: 1px solid #444; display: flex; gap: 8px;
+}
+.chat-input-area input {
+  flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #555;
+  background: #2a2a2a; color: #eee; font-size: 14px; outline: none;
+}
+.chat-input-area input:focus { border-color: #0a84ff; }
+.chat-input-area button {
+  padding: 8px 16px; border-radius: 8px; border: none;
+  background: #0a84ff; color: #fff; cursor: pointer; font-size: 14px;
+}
+.chat-input-area button:hover { background: #0066cc; }
+.chat-input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+.thinking-toggle {
+  background: none; border: none; color: #888; cursor: pointer;
+  font-size: 11px; padding: 2px 0;
+}
+.thinking-toggle:hover { color: #aaa; }
+.thinking-block {
+  margin-top: 4px; padding: 8px; background: #222; border-radius: 6px;
+  color: #999; font-style: italic; font-size: 12px; line-height: 1.5;
+  max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+}
+
+/* ── Quiz Panel Toggle ── */
+.quiz-toggle-btn {
+  position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
+  z-index: 2; background: rgba(45,45,45,0.9); border: 1px solid #555;
+  color: #aaa; font-size: 18px; padding: 16px 6px; border-radius: 8px 0 0 8px;
+  cursor: pointer; transition: 0.15s;
+}
+.quiz-toggle-btn:hover { background: #0a84ff; color: #fff; }
+.quiz-toggle-close {
+  background: none; border: none; color: #888; font-size: 18px;
+  cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.quiz-toggle-close:hover { color: #fff; }
+
+/* ── Quiz Panel (z=1, center-right) ── */
+.quiz-panel {
+  position: fixed; left: 392px; right: 16px; top: 16px; bottom: 16px;
+  z-index: 1; background: rgba(30,30,30,0.92); border: 1px solid #444;
+  border-radius: 12px; display: flex; flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  overflow-y: auto;
+}
+.quiz-header {
+  padding: 12px 16px; border-bottom: 1px solid #444;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.quiz-header h3 { font-size: 15px; }
+.quiz-header button {
+  padding: 6px 14px; border-radius: 6px; border: none;
+  background: #0a84ff; color: #fff; cursor: pointer; font-size: 13px;
+}
+.quiz-header button:hover { background: #0066cc; }
+.quiz-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: #666; font-size: 15px; text-align: center; padding: 32px;
+  line-height: 1.6;
+}
+.quiz-list { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.question-card {
+  background: #2a2a2a; border: 1px solid #444; border-radius: 10px;
+  padding: 16px; transition: border-color 0.2s;
+}
+.question-card.correct { border-color: #4a9a4a; }
+.question-card.wrong { border-color: #c05555; }
+.q-header {
+  font-weight: 600; font-size: 14px; margin-bottom: 8px;
+  display: flex; justify-content: space-between;
+}
+.q-type {
+  font-size: 11px; color: #888; font-weight: 400;
+}
+.q-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.q-option {
+  padding: 6px 14px; border-radius: 6px; border: 1px solid #555;
+  background: #333; color: #ddd; cursor: pointer; font-size: 13px;
+  transition: 0.1s;
+}
+.q-option:hover { border-color: #0a84ff; background: #3a3a3a; }
+.q-option.selected { border-color: #0a84ff; background: #0a5aaa; }
+.q-input-row { display: flex; gap: 8px; }
+.q-input-row input {
+  flex: 1; padding: 6px 12px; border-radius: 6px; border: 1px solid #555;
+  background: #222; color: #eee; font-size: 14px; outline: none;
+}
+.q-input-row input:focus { border-color: #0a84ff; }
+.q-input-row button {
+  padding: 6px 14px; border-radius: 6px; border: none;
+  background: #0a84ff; color: #fff; cursor: pointer; font-size: 13px;
+}
+.q-input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+.q-result {
+  margin-top: 8px; font-size: 13px; padding: 8px; border-radius: 6px;
+}
+.q-result.correct { background: rgba(74,154,74,0.2); color: #8c8; }
+.q-result.wrong { background: rgba(192,85,85,0.2); color: #c88; }
+
+.quiz-summary {
+  padding: 16px; border-top: 1px solid #444; margin-top: auto;
+}
+.progress-bar {
+  height: 6px; background: #444; border-radius: 3px; margin: 8px 0;
+}
+.progress-fill {
+  height: 100%; border-radius: 3px; background: #0a84ff;
+  transition: width 0.3s;
+}
+
+/* ── Toolbar (z=2, top center) ── */
+.toolbar {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  z-index: 2; display: flex; gap: 8px; background: rgba(45,45,45,0.95);
+  padding: 6px 12px; border-radius: 8px; border: 1px solid #444;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+.toolbar button {
+  background: #444; border: none; color: #ccc; padding: 6px 12px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.toolbar button:hover { background: #555; color: #fff; }
+.toolbar .t-hint { color: #777; font-size: 12px; align-self: center; margin-left: 8px; }
+.settings-dropdown {
+  position: absolute; top: 100%; right: 0; margin-top: 8px;
+  background: #2d2d2d; border: 1px solid #555; border-radius: 8px;
+  padding: 16px; min-width: 220px; z-index: 30; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+.settings-section { margin-bottom: 12px; }
+.settings-section label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
+.settings-section input, .settings-section select {
+  width: 100%; padding: 6px 8px; border-radius: 4px; border: 1px solid #555;
+  background: #1e1e1e; color: #eee; font-size: 13px; outline: none;
+}
+.settings-section input:focus, .settings-section select:focus { border-color: #0a84ff; }
+.settings-close {
+  width: 100%; padding: 6px; border-radius: 4px; border: none;
+  background: #444; color: #ccc; cursor: pointer; font-size: 13px;
+}
+.settings-close:hover { background: #555; }
+
+/* Light theme overrides */
+body.light { background: #f0f0f0; color: #222; }
+body.light .canvas-layer { background: #f0f0f0; }
+body.light .grid-bg { background-image: radial-gradient(circle, #999 2px, transparent 2px); opacity: 0.8; }
+body.light .graph-node.subject { background: #d0e0f0; border-color: #4a90d9; color: #222; }
+body.light .graph-node.kp { background: #d0f0d0; border-color: #5a9a5a; color: #222; }
+body.light .chat-panel { background: rgba(255,255,255,0.92); border-color: #ccc; }
+body.light .chat-header { border-color: #ccc; color: #666; }
+body.light .chat-msg.user { background: #0a84ff; color: #fff; }
+body.light .chat-msg.bot { background: #e8e8e8; color: #222; }
+body.light .chat-input-area input { background: #fff; color: #222; border-color: #ccc; }
+body.light .quiz-panel { background: rgba(255,255,255,0.92); border-color: #ccc; }
+body.light .quiz-header { border-color: #ccc; }
+body.light .question-card { background: #fff; border-color: #ddd; }
+body.light .q-input-row input { background: #fff; color: #222; border-color: #ccc; }
+body.light .toolbar { background: rgba(255,255,255,0.95); border-color: #ccc; }
+body.light .toolbar button { background: #e0e0e0; color: #333; }
+body.light .toolbar button:hover { background: #d0d0d0; }
+body.light .settings-dropdown { background: #fff; border-color: #ccc; }
+body.light .settings-section input, body.light .settings-section select { background: #f0f0f0; color: #222; border-color: #ccc; }
+body.light .property-panel { background: #fff; color: #222; }
+body.light .edges-svg text { fill: #666; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button @click="autoLayout('grid')">Grid</button>
+    <button @click="autoLayout('tree')">Tree</button>
+    <button @click="fetchGraph">Refresh</button>
+    <span class="t-hint">Scroll=Zoom | Drag=Pan | Click Node=View</span>
+    <div style="position:relative;margin-left:auto">
+      <button @click="showSettings = !showSettings" title="Settings">⚙</button>
+      <div v-if="showSettings" class="settings-dropdown">
+        <div class="settings-section">
+          <label>Model</label>
+          <input v-model="modelName" placeholder="deepseek-v4-flash" />
+        </div>
+        <div class="settings-section">
+          <label>Theme</label>
+          <select v-model="theme" @change="applyTheme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </div>
+        <button class="settings-close" @click="showSettings = false">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <div class="canvas-layer"
+    @wheel.prevent="handleWheel"
+    @mousedown="handleCanvasMouseDown"
+    ref="canvasRef">
+    <div class="canvas-transform" :style="canvasTransformStyle">
+      <div class="grid-bg"></div>
+      <svg class="edges-svg">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+          </marker>
+        </defs>
+        <g>
+          <path v-for="edge in edges" :key="edge.id"
+            :d="getEdgePath(edge)"
+            stroke="#666" stroke-width="2" fill="none"
+            marker-end="url(#arrowhead)"
+          />
+          <text v-for="edge in edgesWithLabels" :key="'t'+edge.id"
+            :x="getEdgeLabelPos(edge).x" :y="getEdgeLabelPos(edge).y"
+            fill="#888" font-size="11" text-anchor="middle"
+            style="pointer-events:none;user-select:none">
+            {{ edge.label }}
+          </text>
+        </g>
+      </svg>
+      <div v-for="node in nodes" :key="node.id"
+        class="graph-node"
+        :class="[node.type, { 'has-wrong': node.meta?.hasWrong }]"
+        :style="nodeStyle(node)"
+        @click.stop="onNodeClick(node)">
+        <div class="node-label">{{ node.label }}</div>
+        <div v-if="node.meta?.questionCount" class="node-count">
+          {{ node.meta.questionCount }} questions
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Panel Toggle (visible when hidden) -->
+  <button v-if="!chatVisible" class="chat-toggle-btn" @click="chatVisible = true" title="Show chat panel">
+    &#187;
+  </button>
+
+  <!-- Chat Panel -->
+  <div class="chat-panel" v-if="chatVisible">
+    <div class="chat-header">
+      Chat with Domiclaw
+      <button class="chat-toggle-close" @click="chatVisible = false" title="Hide chat panel">&#171;</button>
+    </div>
+    <div class="chat-messages" ref="chatMsgs">
+      <div v-for="(m, i) in messages" :key="i"
+        class="chat-msg" :class="m.role">
+        <template v-if="m.role==='thinking'">
+          <div style="font-size:12px;color:#888;margin-bottom:4px">Thinking...</div>
+          {{ m.text }}
+        </template>
+        <template v-else>
+          {{ m.text }}
+          <div v-if="m.thinking" style="margin-top:8px">
+            <button class="thinking-toggle" @click="m.thinkingShow = !m.thinkingShow">
+              {{ m.thinkingShow ? 'Hide thinking' : 'Show thinking' }}
+            </button>
+            <div v-if="m.thinkingShow" class="thinking-block">{{ m.thinking }}</div>
+          </div>
+        </template>
+      </div>
+      <div v-if="streaming" class="chat-msg bot" style="opacity:0.7">
+        {{ streamingText }}<span class="cursor-blink">|</span>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <input v-model="chatInput" @keyup.enter="sendMessage"
+        placeholder="Ask Domiclaw..." :disabled="streaming" />
+      <button @click="sendMessage" :disabled="!chatInput.trim() || streaming">Send</button>
+    </div>
+  </div>
+
+  <!-- Quiz Panel Toggle (visible when hidden) -->
+  <button v-if="!quizVisible" class="quiz-toggle-btn" @click="quizVisible = true" title="Show quiz panel">
+    &#171;
+  </button>
+
+  <!-- Quiz Panel -->
+  <div class="quiz-panel" v-if="quizVisible">
+    <div class="quiz-header">
+      <h3>{{ quizSubject ? quizSubject + ' — Quiz' : 'Quiz Panel' }}</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button @click="createQuiz" :disabled="quizLoading">
+          {{ quizLoading ? 'Creating...' : '+ New Quiz' }}
+        </button>
+        <button class="quiz-toggle-close" @click="quizVisible = false" title="Hide quiz panel">
+          &#187;
+        </button>
+      </div>
+    </div>
+    <div v-if="!quizQuestions.length && !quizLoading" class="quiz-empty">
+      <div>
+        No active quiz.<br>
+        Click <b>+ New Quiz</b> or ask Domiclaw:<br>
+        <i>"Create a quiz with 5 questions about Mathematics"</i>
+      </div>
+    </div>
+    <div v-if="quizLoading" class="quiz-empty">Loading quiz...</div>
+    <div class="quiz-list" v-if="quizQuestions.length">
+      <div v-for="(q, qi) in quizQuestions" :key="q.id"
+        class="question-card"
+        :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
+        <div class="q-header">
+          <span>Q{{ qi+1 }}. {{ q.text }}</span>
+          <span class="q-type">{{ q.type }}</span>
+        </div>
+        <div v-if="q.options && !q.answered" class="q-options">
+          <button v-for="(label, optKey) in q.options" :key="optKey"
+            class="q-option"
+            :class="{ selected: q.selectedOption === optKey }"
+            @click="q.selectedOption = optKey">
+            {{ optKey }}: {{ label }}
+          </button>
+        </div>
+        <div class="q-input-row" v-if="!q.answered">
+          <input v-model="q.studentAnswer"
+            :placeholder="q.type==='multiple_choice' ? 'Type option letter (A/B/C/D)' : 'Your answer...'"
+            @keyup.enter="submitAnswer(q, qi)" />
+          <button @click="submitAnswer(q, qi)"
+            :disabled="!q.studentAnswer && !q.selectedOption">
+            Submit
+          </button>
+        </div>
+        <div v-if="q.answered" class="q-result" :class="q.result">
+          {{ q.result === 'correct' ? 'Correct!' : 'Incorrect' }}
+          <template v-if="q.explanation"><br><small>{{ q.explanation }}</small></template>
+        </div>
+      </div>
+    </div>
+    <div class="quiz-summary" v-if="quizStats.total > 0">
+      <div>Progress: {{ quizStats.correct }}/{{ quizStats.total }}</div>
+      <div class="progress-bar">
+        <div class="progress-fill"
+          :style="{ width: (quizStats.total ? quizStats.correct/quizStats.total*100 : 0)+'%' }">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const { ref, computed, onMounted, nextTick } = Vue;
+
+Vue.createApp({
+  setup() {
+    // ──────── Canvas State ────────
+    const canvasRef = ref(null);
+    const scale = ref(0.8);
+    const translateX = ref(200);
+    const translateY = ref(100);
+    const nodes = ref([]);
+    const edges = ref([]);
+
+    const canvasTransformStyle = computed(() => ({
+      transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
+      transformOrigin: '0 0',
+    }));
+
+    const edgesWithLabels = computed(() => edges.value.filter(e => e.label));
+
+    // Node positioning: offset to center of node for edges
+    function getNodeCenter(node) {
+      const w = node.type === 'subject' ? 140 : 120;
+      const h = node.type === 'subject' ? 52 : 38;
+      return { x: node.x + w/2, y: node.y + h/2 };
+    }
+
+    function getEdgePath(edge) {
+      const from = nodes.value.find(n => n.id === edge.fromId);
+      const to = nodes.value.find(n => n.id === edge.toId);
+      if (!from || !to) return '';
+      const fromC = getNodeCenter(from);
+      const toC = getNodeCenter(to);
+      const dx = Math.abs(fromC.x - toC.x) * 0.5;
+      return `M ${fromC.x} ${fromC.y} C ${fromC.x+dx} ${fromC.y}, ${toC.x-dx} ${toC.y}, ${toC.x} ${toC.y}`;
+    }
+
+    function getEdgeLabelPos(edge) {
+      const from = nodes.value.find(n => n.id === edge.fromId);
+      const to = nodes.value.find(n => n.id === edge.toId);
+      if (!from || !to) return { x: 0, y: 0 };
+      const fromC = getNodeCenter(from);
+      const toC = getNodeCenter(to);
+      return { x: (fromC.x + toC.x) / 2, y: (fromC.y + toC.y) / 2 - 8 };
+    }
+
+    function nodeStyle(node) {
+      const w = node.type === 'subject' ? 140 : 120;
+      return { left: node.x + 'px', top: node.y + 'px', width: w + 'px' };
+    }
+
+    // Canvas interaction
+    let isPanning = false, panStart = { x: 0, y: 0 }, tsStart = { x: 0, y: 0 };
+
+    function handleCanvasMouseDown(e) {
+      if (e.target.closest('.graph-node')) return;
+      isPanning = true;
+      panStart = { x: e.clientX, y: e.clientY };
+      tsStart = { x: translateX.value, y: translateY.value };
+      window.addEventListener('mousemove', onPanMove);
+      window.addEventListener('mouseup', onPanUp);
+    }
+
+    function onPanMove(e) {
+      if (!isPanning) return;
+      translateX.value = tsStart.x + e.clientX - panStart.x;
+      translateY.value = tsStart.y + e.clientY - panStart.y;
+    }
+
+    function onPanUp() {
+      isPanning = false;
+      window.removeEventListener('mousemove', onPanMove);
+      window.removeEventListener('mouseup', onPanUp);
+    }
+
+    function handleWheel(e) {
+      const delta = -e.deltaY * 0.001;
+      const newScale = Math.min(3, Math.max(0.2, scale.value * (1 + delta)));
+      const rect = canvasRef.value.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const cx = (mx - translateX.value) / scale.value;
+      const cy = (my - translateY.value) / scale.value;
+      scale.value = newScale;
+      translateX.value = mx - cx * scale.value;
+      translateY.value = my - cy * scale.value;
+    }
+
+    function onNodeClick(node) {
+      if (node.type === 'subject') {
+        // Highlight in chat: suggest quiz for this subject
+        chatInput.value = `Create a quiz with 5 questions about ${node.label}`;
+      }
+    }
+
+    function autoLayout(type) {
+      const subs = nodes.value.filter(n => n.type === 'subject');
+      const kps = nodes.value.filter(n => n.type === 'knowledge_point');
+      const cols = 3;
+      subs.forEach((s, i) => {
+        const row = Math.floor(i / cols);
+        const col = i % cols;
+        s.x = 200 + col * 300;
+        s.y = 150 + row * 200;
+      });
+      kps.forEach((kp, ki) => {
+        const parentSubj = subs.find(s => s.id === edges.value.find(
+          e => e.toId === kp.id && e.fromId.startsWith('subj-'))?.fromId);
+        const base = parentSubj || { x: 400, y: 300 };
+        const angle = (ki / Math.max(kps.length, 1)) * Math.PI * 2 - Math.PI/2;
+        kp.x = base.x + Math.cos(angle) * 200;
+        kp.y = base.y + Math.sin(angle) * 200 + 70;
+      });
+    }
+
+    // ──────── API helpers ────────
+    async function apiGet(path) {
+      const r = await fetch(path);
+      return r.json();
+    }
+
+    async function apiPost(path, body) {
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return r.json();
+    }
+
+    async function fetchGraph() {
+      try {
+        const data = await apiGet('/api/graph');
+        nodes.value = data.nodes || [];
+        edges.value = data.edges || [];
+        autoLayout('grid');
+      } catch (e) {
+        console.error('fetchGraph', e);
+      }
+    }
+
+    // ──────── Chat State ────────
+    const messages = ref([]);
+    const chatInput = ref('');
+    const streaming = ref(false);
+    const streamingText = ref('');
+    const chatMsgs = ref(null);
+
+    function scrollChat() {
+      nextTick(() => {
+        const el = chatMsgs.value;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+
+    function addMessage(role, text) {
+      messages.value.push({ role, text });
+      scrollChat();
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text || streaming.value) return;
+
+      addMessage('user', text);
+      chatInput.value = '';
+      streaming.value = true;
+      streamingText.value = '';
+
+      // Check if it's a quiz creation request
+      const quizMatch = text.match(/create\s+(?:a\s+)?quiz\s+(?:with\s+)?(\d+)?\s*(?:questions?\s+)?(?:about\s+)?(.+)/i);
+      if (quizMatch) {
+        const count = parseInt(quizMatch[1]) || 5;
+        const subject = quizMatch[2]?.trim();
+        if (subject) {
+          addMessage('thinking', `Creating a ${count}-question quiz about ${subject}...`);
+          await createQuizDirect(subject, count);
+          streaming.value = false;
+          return;
+        }
+      }
+
+      // General message — send to agent via SSE
+      try {
+        const r = await apiPost('/api/message', { text });
+        if (r.status === 'processing') {
+          // Connect to SSE for streaming response
+          connectSSE();
+        } else {
+          addMessage('bot', 'Message sent. ' + (r.note || ''));
+          streaming.value = false;
+        }
+      } catch (e) {
+        addMessage('bot', 'Error: ' + e.message);
+        streaming.value = false;
+      }
+    }
+
+    function connectSSE() {
+      const es = new EventSource('/api/stream?jid=web:console');
+      let thinkingText = '';
+
+      es.addEventListener('connected', () => {});
+      es.addEventListener('status', (e) => {
+        const d = JSON.parse(e.data);
+        if (d.phase === 'processing') streamingText.value = '';
+      });
+      es.addEventListener('thinking', (e) => {
+        thinkingText += e.data ? JSON.parse(e.data).text || '' : '';
+        // Show subtle indicator that model is thinking
+        if (!streamingText.value) streamingText.value = '\u{1F9E0} thinking...';
+      });
+      es.addEventListener('token', (e) => {
+        const d = JSON.parse(e.data);
+        // Clear thinking indicator on first real token
+        if (streamingText.value === '\u{1F9E0} thinking...') streamingText.value = '';
+        streamingText.value += d.text || '';
+        scrollChat();
+      });
+      es.addEventListener('done', (e) => {
+        const d = JSON.parse(e.data);
+        if (d.status === 'success') {
+          const botText = d.text || streamingText.value;
+          // Store thinking collapsed behind a click-to-expand toggle
+          const msgIdx = messages.value.length;
+          addMessage('bot', botText);
+          if (thinkingText) {
+            // Attach hidden thinking to this bot message
+            messages.value[msgIdx].thinking = thinkingText;
+            messages.value[msgIdx].thinkingShow = true;
+          }
+        } else {
+          addMessage('bot', 'Error: ' + (d.error || 'Unknown'));
+        }
+        thinkingText = '';
+        streaming.value = false;
+        streamingText.value = '';
+        es.close();
+      });
+      es.onerror = () => {
+        if (streaming.value && streamingText.value) {
+          addMessage('bot', streamingText.value);
+        }
+        streaming.value = false;
+        streamingText.value = '';
+        es.close();
+      };
+    }
+
+    // ──────── Quiz State ────────
+    const quizQuestions = ref([]);
+    const quizSessionId = ref(null);
+    const showSettings = ref(false);
+    const theme = ref(localStorage.getItem('domiclaw-theme') || 'dark');
+    const modelName = ref(localStorage.getItem('domiclaw-model') || '');
+
+    function applyTheme() {
+      document.body.classList.toggle('light', theme.value === 'light');
+      localStorage.setItem('domiclaw-theme', theme.value);
+    }
+    // Apply on load
+    applyTheme();
+
+    const chatVisible = ref(true);
+    const quizVisible = ref(true);
+    const quizSubject = ref('');
+    const quizLoading = ref(false);
+
+    const quizStats = computed(() => {
+      const total = quizQuestions.value.length;
+      const correct = quizQuestions.value.filter(q => q.result === 'correct').length;
+      return { total, correct };
+    });
+
+    async function createQuizDirect(subject, count) {
+      quizLoading.value = true;
+      try {
+        const data = await apiPost('/api/quiz/create', {
+          subject, question_count: count,
+        });
+        if (data.error) {
+          addMessage('bot', `Quiz creation failed: ${data.error}`);
+          quizLoading.value = false;
+          return;
+        }
+        quizSessionId.value = data.session_id;
+        quizSubject.value = data.subject;
+        quizQuestions.value = (data.questions || []).map(q => ({
+          ...q,
+          studentAnswer: '',
+          selectedOption: null,
+          answered: false,
+          result: null,
+          explanation: null,
+        }));
+        addMessage('bot',
+          `Quiz created! ${data.questions.length} questions about ${data.subject}. Answer them in the quiz panel.`);
+      } catch (e) {
+        addMessage('bot', 'Quiz error: ' + e.message);
+      }
+      quizLoading.value = false;
+    }
+
+    async function createQuiz() {
+      // Prompt-style: ask the model
+      const text = `Create a quiz with 5 questions about ${quizSubject.value || 'Mathematics'}`;
+      addMessage('user', text);
+      streaming.value = true;
+      streamingText.value = '';
+      // Try direct creation first
+      await createQuizDirect(quizSubject.value || 'Mathematics', 5);
+      streaming.value = false;
+    }
+
+    async function submitAnswer(q, qi) {
+      const answer = q.selectedOption || q.studentAnswer;
+      if (!answer) return;
+
+      try {
+        const data = await apiPost('/api/quiz/answer', {
+          session_id: quizSessionId.value,
+          question_id: q.id,
+          answer,
+        });
+        q.answered = true;
+        q.result = data.correct ? 'correct' : 'wrong';
+        q.explanation = data.explanation;
+      } catch (e) {
+        console.error('submitAnswer', e);
+      }
+    }
+
+    // ──────── Init ────────
+    onMounted(() => {
+      fetchGraph();
+      addMessage('bot', 'Welcome to Domiclaw! I can help you study. Try: "Create a quiz with 5 questions about Mathematics"');
+    });
+
+    return {
+      // Canvas
+      canvasRef, scale, translateX, nodes, edges,
+      canvasTransformStyle, edgesWithLabels,
+      getEdgePath, getEdgeLabelPos, nodeStyle,
+      handleCanvasMouseDown, handleWheel, onNodeClick,
+      autoLayout, fetchGraph,
+      // Settings
+      showSettings, theme, modelName, applyTheme,
+      // Chat
+      chatVisible, messages, chatInput, streaming, streamingText, chatMsgs,
+      sendMessage,
+      // Quiz
+      quizVisible, quizQuestions, quizSessionId, quizSubject, quizLoading,
+      quizStats, createQuiz, submitAnswer,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

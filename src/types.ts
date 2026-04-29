@@ -89,6 +89,9 @@ export interface Channel {
 
   /** 可选：同步群组/聊天列表 */
   syncGroups?: (force: boolean) => Promise<void>;
+
+  /** 可选：流式输出时逐块发送（thinking 为模型推理，content 为回复文本）*/
+  sendChunk?: (jid: string, chunk: { thinking?: string; content?: string }) => Promise<void>;
 }
 
 /**
@@ -110,3 +113,27 @@ export type OnChatMetadata = (
   channel?: string, // 频道名称（可选）
   isGroup?: boolean, // 是否为群组（可选）
 ) => void;
+
+// ============== Tool Calling Types ==============
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ToolContext {
+  groupFolder: string;
+  chatJid: string;
+}
+
+export interface RegisteredTool {
+  definition: ToolDefinition;
+  execute: (
+    args: Record<string, unknown>,
+    ctx: ToolContext,
+  ) => Promise<string>;
+}

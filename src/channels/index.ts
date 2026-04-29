@@ -11,6 +11,8 @@ export interface ChannelOpts {
     isGroup?: boolean,
   ) => void;
   registeredGroups: () => Record<string, import("../types.js").RegisteredGroup>;
+  /** Notify that a message was processed — updates the polling cursor */
+  onAgentProcessed?: (chatJid: string, timestamp: string) => void;
 }
 
 export type ChannelFactory = (opts: ChannelOpts) => Channel | null;
@@ -31,3 +33,7 @@ export function getRegisteredChannelNames(): string[] {
 // 导入并注册 TUI 频道
 import { TUIChannel } from "./tui.js";
 registerChannel("tui", TUIChannel);
+
+// 导入并注册 Web 频道
+import { WebChannel } from "./http.js";
+registerChannel("web", WebChannel);

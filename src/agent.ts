@@ -1,177 +1,565 @@
-/**
- * Domiclaw Agent - 模型 API 调用模块
- *
- * 负责调用外部模型的 Chat API，生成回复内容。
- *
- * 支持的模型（通过配置）:
- * - DeepSeek (deepseek-chat)
- * - Qwen (qwen-turbo)
- * - Anthropic (claude-sonnet-4-20250514)
- * - 任何 OpenAI 兼容的 API
- *
- * API 调用格式:
- * POST {MODEL_BASE_URL}/chat/completions
- * Body: { model, messages: [{role, content}], stream: false }
- * Response: { choices: [{message: {content}}] }
- */
 import fs from "fs";
 import path from "path";
 
 import {
-  MODEL_NAME, // 模型名称（如 "deepseek-chat"）
-  MODEL_BASE_URL, // API 基础 URL（如 "https://api.deepseek.com"）
-  MODEL_API_KEY, // API 密钥
-  GROUPS_DIR, // 群组目录
+  MODEL_NAME,
+  MODEL_BASE_URL,
+  MODEL_API_KEY,
+  GROUPS_DIR,
+  STREAMING_ENABLED,
+  THINKING_MODE,
+  MAX_CONTEXT_MESSAGES,
+  CONTEXT_SUMMARIZE_THRESHOLD,
+  MAX_RETRIES,
+  RETRY_BASE_DELAY,
+  MODEL_NAME_FALLBACK,
+  MODEL_BASE_URL_FALLBACK,
+  MODEL_API_KEY_FALLBACK,
 } from "./config.js";
 
 import { logger } from "./logger.js";
-import { NewMessage, RegisteredGroup } from "./types.js";
+import { RegisteredGroup, ToolContext, ToolDefinition } from "./types.js";
+import { getTool, getAllToolDefinitions } from "./tools/index.js";
+import {
+  getRecentMessages,
+  getSessionContext,
+  getWeakAreas,
+} from "./db.js";
 
-/**
- * Agent 输入参数
- *
- * 用于传递给模型的输入数据
- */
+import "./tools/quiz.js";
+import "./tools/knowledge.js";
+import "./tools/review.js";
+import "./tools/study.js";
+import "./tools/reminder.js";
+
+const MAX_TOOL_LOOP = 10;
+
 export interface AgentInput {
-  /** 消息历史（格式化后的 XML 字符串）*/
   prompt: string;
-  /** 会话 ID（暂未使用，为未来会话功能预留）*/
   sessionId?: string;
-  /** 群组文件夹名称（用于创建工作目录）*/
   groupFolder: string;
-  /** 聊天 ID（用于标识来源）*/
   chatJid: string;
-  /** 是否为主群（主群有更高权限）*/
   isMain: boolean;
-  /** 是否为定时任务 */
   isScheduledTask?: boolean;
-  /** AI 助手名称 */
   assistantName?: string;
-  /** 预留：自定义脚本 */
   script?: string;
 }
 
-/**
- * Agent 输出结果
- *
- * 模型调用返回的结果
- */
 export interface AgentOutput {
-  /** 调用状态 */
   status: "success" | "error";
-  /** 生成的回复内容 */
   result: string | null;
-  /** 新的会话 ID（用于会话保持）*/
+  thinking: string | null;
+  isPartial?: boolean;
   newSessionId?: string;
-  /** 错误信息（如果失败）*/
   error?: string;
 }
 
-/**
- * 运行 Agent - 调用模型 API 生成回复
- *
- * @param group 群组配置
- * @param input 输入参数
- * @param onOutput 可选的输出回调（流式输出时用到）
- * @returns AgentOutput 调用结果
- *
- * 处理流程:
- * 1. 创建群组工作目录
- * 2. 检查 API 密钥
- * 3. 调用模型 API
- * 4. 解析返回内容
- * 5. 返回结果
- *
- * @example
- * ```ts
- * const result = await runAgent(group, { prompt: "你好" });
- * if (result.status === "success") {
- *   console.log(result.result); // 模型回复
- * }
- * ```
- */
+interface ChatMessage {
+  role: string;
+  content: string | null;
+  reasoning_content?: string;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+}
+
+interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+interface StreamResult {
+  content: string;
+  thinking: string;
+  reasoningContent: string;
+  toolCalls: ToolCall[];
+  finishReason: string;
+}
+
+function buildSystemPrompt(
+  groupFolder: string,
+  assistantName: string,
+  chatJid: string,
+): string {
+  // Base instructions from CLAUDE.md or default
+  let instructions: string;
+  const mdPath = path.join(GROUPS_DIR, groupFolder, "CLAUDE.md");
+  try {
+    const content = fs.readFileSync(mdPath, "utf-8").trim();
+    instructions = content.startsWith("# ")
+      ? content.replace(/^# .+/, `# ${assistantName}`)
+      : `# ${assistantName}\n\n${content}`;
+  } catch {
+    instructions = `You are ${assistantName}, a helpful educational assistant. You help students study by creating quizzes, storing knowledge points, tracking wrong questions, and providing spaced repetition reviews. Use the available tools to manage the student's learning.`;
+  }
+
+  // Enrich with session context
+  const ctx = getSessionContext(chatJid);
+  const weakAreas = getWeakAreas(chatJid);
+
+  const lines: string[] = [];
+
+  if (ctx || weakAreas.length > 0) {
+    lines.push("[Session Context]");
+    if (ctx?.topic) lines.push(`Current topic: ${ctx.topic}`);
+    if (weakAreas.length > 0) lines.push(`Student's weak areas: ${weakAreas.join(", ")}`);
+    if (ctx?.summary) lines.push(`Previous discussion: ${ctx.summary}`);
+    lines.push("");
+  }
+
+  lines.push(instructions);
+
+  return lines.join("\n");
+}
+
+function buildSystemPromptScheduled(
+  groupFolder: string,
+  assistantName: string,
+  chatJid: string,
+): string {
+  const base = buildSystemPrompt(groupFolder, assistantName, chatJid);
+
+  const checkInPrefix = `[Scheduled Check-in]
+You are performing a scheduled check-in. The student did not initiate this.
+Be proactive but not pushy. Check on their progress and offer help.
+
+1. Check for due spaced repetition reviews (get_due_reviews)
+2. Check study plan progress (get_study_progress)
+3. If there are upcoming tasks today, mention them
+4. Be brief and encouraging — aim for 2-3 sentences max
+
+`;
+
+  return checkInPrefix + base;
+}
+
+async function retry<T>(
+  fn: () => Promise<T>,
+  label: string,
+): Promise<T> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === MAX_RETRIES) throw err;
+      const delay = RETRY_BASE_DELAY * Math.pow(2, attempt) + Math.random() * 500;
+      logger.warn({ attempt: attempt + 1, delay: Math.round(delay), label }, "Retrying after error");
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+interface ModelConfig {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+}
+
+async function nonStreamingApiCall(
+  messages: ChatMessage[],
+  tools: ToolDefinition[],
+  model?: ModelConfig,
+): Promise<{ content: string | null; toolCalls: ToolCall[]; reasoningContent: string | null }> {
+  const m = model || { name: MODEL_NAME, baseUrl: MODEL_BASE_URL, apiKey: MODEL_API_KEY };
+
+  const doCall = async () => {
+    const body: Record<string, unknown> = {
+      model: m.name,
+      messages,
+      stream: false,
+      thinking_mode: THINKING_MODE,
+    };
+    if (tools.length > 0) body.tools = tools;
+
+    logger.debug(
+      { model: m.name, msgCount: messages.length, toolCount: tools.length, stream: false },
+      "API request (non-streaming)",
+    );
+
+    const response = await fetch(`${m.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${m.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(
+        { status: response.status, body: errorText.substring(0, 500) },
+        "API error response",
+      );
+      throw new Error(`API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: {
+        message?: {
+          content?: string | null;
+          reasoning_content?: string | null;
+          tool_calls?: ToolCall[];
+        };
+        finish_reason?: string;
+      }[];
+    };
+
+    const msg = data.choices?.[0]?.message;
+    const finishReason = data.choices?.[0]?.finish_reason;
+    const contentPreview = msg?.content?.substring(0, 200) || "";
+    logger.info(
+      {
+        contentLen: msg?.content?.length || 0,
+        reasoningLen: msg?.reasoning_content?.length || 0,
+        toolCallCount: msg?.tool_calls?.length || 0,
+        finishReason,
+        contentPreview,
+      },
+      "API response (non-streaming)",
+    );
+
+    return {
+      content: msg?.content || null,
+      toolCalls: msg?.tool_calls || [],
+      reasoningContent: msg?.reasoning_content || null,
+    };
+  };
+
+  // Try primary, failover to fallback if configured
+  try {
+    return await retry(doCall, "api-call");
+  } catch (err) {
+    if (MODEL_NAME_FALLBACK && MODEL_API_KEY_FALLBACK) {
+      logger.warn("Primary model failed, trying fallback");
+      const fallback: ModelConfig = {
+        name: MODEL_NAME_FALLBACK,
+        baseUrl: MODEL_BASE_URL_FALLBACK || MODEL_BASE_URL,
+        apiKey: MODEL_API_KEY_FALLBACK,
+      };
+      return nonStreamingApiCall(messages, tools, fallback);
+    }
+    throw err;
+  }
+}
+
+async function streamApiCall(
+  messages: ChatMessage[],
+  tools: ToolDefinition[],
+  onOutput?: (output: AgentOutput) => Promise<void>,
+  model?: ModelConfig,
+): Promise<StreamResult> {
+  const m = model || { name: MODEL_NAME, baseUrl: MODEL_BASE_URL, apiKey: MODEL_API_KEY };
+
+  const doStream = async () => {
+    const body: Record<string, unknown> = {
+      model: m.name,
+      messages,
+      stream: true,
+      thinking_mode: THINKING_MODE,
+    };
+    if (tools.length > 0) body.tools = tools;
+
+    logger.debug(
+      { model: m.name, msgCount: messages.length, toolCount: tools.length, stream: true },
+      "API request (streaming)",
+    );
+
+    const response = await fetch(`${m.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${m.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(
+        { status: response.status, body: errorText.substring(0, 500) },
+        "API stream error response",
+      );
+      throw new Error(`API error: ${response.status} - ${errorText}`);
+    }
+
+    return response;
+  };
+
+  let response: Response;
+  try {
+    response = await retry(doStream, "stream-call");
+  } catch (err) {
+    if (MODEL_NAME_FALLBACK && MODEL_API_KEY_FALLBACK) {
+      logger.warn("Primary model failed for stream, trying fallback");
+      const fallback: ModelConfig = {
+        name: MODEL_NAME_FALLBACK,
+        baseUrl: MODEL_BASE_URL_FALLBACK || MODEL_BASE_URL,
+        apiKey: MODEL_API_KEY_FALLBACK,
+      };
+      return streamApiCall(messages, tools, onOutput, fallback);
+    }
+    throw err;
+  }
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  let content = "";
+  let thinking = "";
+  const toolCallAccum = new Map<number, { id: string; name: string; args: string }>();
+  let finishReason = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) continue;
+      const data = trimmed.slice(6);
+      if (data === "[DONE]") continue;
+
+      try {
+        const json = JSON.parse(data);
+        const delta = json.choices?.[0]?.delta;
+        const fr = json.choices?.[0]?.finish_reason;
+        if (fr) finishReason = fr;
+
+        if (!delta) continue;
+
+        if (delta.reasoning_content) {
+          thinking += delta.reasoning_content;
+          if (onOutput) {
+            await onOutput({
+              status: "success",
+              result: null,
+              thinking: delta.reasoning_content,
+              isPartial: true,
+            });
+          }
+        }
+
+        if (delta.content) {
+          content += delta.content;
+          if (onOutput) {
+            await onOutput({
+              status: "success",
+              result: delta.content,
+              thinking: null,
+              isPartial: true,
+            });
+          }
+        }
+
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const existing = toolCallAccum.get(tc.index) || { id: "", name: "", args: "" };
+            if (tc.id) existing.id = tc.id;
+            if (tc.function?.name) existing.name += tc.function.name;
+            if (tc.function?.arguments) existing.args += tc.function.arguments;
+            toolCallAccum.set(tc.index, existing);
+          }
+        }
+      } catch {
+        // Skip malformed JSON lines
+      }
+    }
+  }
+
+  const toolCalls: ToolCall[] = [...toolCallAccum.values()]
+    .filter((tc) => tc.id)
+    .map((tc) => ({
+      id: tc.id,
+      type: "function" as const,
+      function: { name: tc.name, arguments: tc.args },
+    }));
+
+  logger.info(
+    {
+      contentLen: content.length,
+      thinkingLen: thinking.length,
+      toolCallCount: toolCalls.length,
+      finishReason,
+      contentPreview: content.substring(0, 200),
+      thinkingPreview: thinking.substring(0, 200),
+    },
+    "API stream complete",
+  );
+
+  return { content, thinking, reasoningContent: thinking, toolCalls, finishReason };
+}
+
 export async function runAgent(
   group: RegisteredGroup,
   input: AgentInput,
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<AgentOutput> {
-  // 1. 确保群组工作目录存在
   const groupDir = path.join(GROUPS_DIR, group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  // 记录调用信息
   logger.info(
-    { group: group.name, model: MODEL_NAME, baseUrl: MODEL_BASE_URL },
-    "正在调用模型 API",
+    {
+      group: group.name,
+      model: MODEL_NAME,
+      streaming: STREAMING_ENABLED,
+      thinkingMode: THINKING_MODE,
+      scheduled: input.isScheduledTask || false,
+      promptLen: input.prompt.length,
+    },
+    "Agent starting",
   );
 
-  // 2. 检查 API 密钥是否配置
   if (!MODEL_API_KEY) {
-    const error = "MODEL_API_KEY 未配置，请在 .env 中设置";
+    const error = "MODEL_API_KEY not configured";
     logger.error({ group: group.name }, error);
-    return { status: "error", result: null, error };
+    return { status: "error", result: null, thinking: null, error };
   }
 
-  try {
-    // 3. 调用模型 Chat API
-    const response = await fetch(`${MODEL_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        // JSON 格式
-        "Content-Type": "application/json",
-        // Bearer 认证
-        Authorization: `Bearer ${MODEL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        // 模型名称
-        model: MODEL_NAME,
-        // 消息历史（格式化的 XML）
-        messages: [{ role: "user", content: input.prompt }],
-        // 非流式输出
-        stream: false,
-      }),
-    });
+  const assistantName = input.assistantName || "Domiclaw";
+  const systemPrompt = input.isScheduledTask
+    ? buildSystemPromptScheduled(group.folder, assistantName, input.chatJid)
+    : buildSystemPrompt(group.folder, assistantName, input.chatJid);
+  const tools = getAllToolDefinitions();
+  const toolCtx: ToolContext = {
+    groupFolder: groupDir,
+    chatJid: input.chatJid,
+  };
 
-    // 4. 检查 HTTP 响应
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API 错误: ${response.status} - ${errorText}`);
+  const messages: ChatMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: input.prompt },
+  ];
+
+  for (let iteration = 0; iteration < MAX_TOOL_LOOP; iteration++) {
+    logger.info({ iteration, msgCount: messages.length }, "Calling model API");
+
+    try {
+      // Stream only on first iteration; tool-calling follow-ups use non-streaming
+      if (iteration === 0 && STREAMING_ENABLED) {
+        const streamResult = await streamApiCall(messages, tools, onOutput);
+
+        // Model returned text content without tool calls
+        if (streamResult.content && streamResult.toolCalls.length === 0) {
+          if (onOutput) {
+            await onOutput({
+              status: "success",
+              result: streamResult.content,
+              thinking: null,
+              isPartial: false,
+            });
+          }
+          return {
+            status: "success",
+            result: streamResult.content,
+            thinking: streamResult.thinking || null,
+          };
+        }
+
+        // Model requested tool calls
+        if (streamResult.toolCalls.length > 0) {
+          messages.push({
+            role: "assistant",
+            content: streamResult.content || null,
+            reasoning_content: streamResult.reasoningContent || undefined,
+            tool_calls: streamResult.toolCalls,
+          });
+
+          for (const tc of streamResult.toolCalls) {
+            const toolName = tc.function.name;
+            const tool = getTool(toolName);
+            logger.info({ tool: toolName }, "Executing tool");
+
+            let toolResult: string;
+            if (!tool) {
+              toolResult = `Error: unknown tool "${toolName}". Available: ${getAllToolDefinitions().map(t => t.function.name).join(", ")}`;
+            } else {
+              try {
+                const parsedArgs = JSON.parse(tc.function.arguments);
+                toolResult = await tool.execute(parsedArgs, toolCtx);
+              } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                toolResult = `Error executing ${toolName}: ${errMsg}`;
+                logger.error({ tool: toolName, err }, "Tool execution error");
+              }
+            }
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: toolResult,
+            });
+          }
+          continue;
+        }
+
+        // Stream finished without content — error
+        return { status: "error", result: null, thinking: null, error: "Stream completed without content" };
+      }
+
+      // Non-streaming path (tool-calling follow-ups or streaming disabled)
+      const result = await nonStreamingApiCall(messages, tools);
+
+      if (result.content) {
+        if (onOutput) {
+          await onOutput({ status: "success", result: result.content, thinking: null });
+        }
+        return { status: "success", result: result.content, thinking: null };
+      }
+
+      if (result.toolCalls.length > 0) {
+        messages.push({
+          role: "assistant",
+          content: result.content,
+          reasoning_content: result.reasoningContent || undefined,
+          tool_calls: result.toolCalls,
+        });
+
+        for (const tc of result.toolCalls) {
+          const toolName = tc.function.name;
+          const tool = getTool(toolName);
+          logger.info({ tool: toolName }, "Executing tool");
+
+          let toolResult: string;
+          if (!tool) {
+            toolResult = `Error: unknown tool "${toolName}". Available: ${getAllToolDefinitions().map(t => t.function.name).join(", ")}`;
+          } else {
+            try {
+              const parsedArgs = JSON.parse(tc.function.arguments);
+              toolResult = await tool.execute(parsedArgs, toolCtx);
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              toolResult = `Error executing ${toolName}: ${errMsg}`;
+              logger.error({ tool: toolName, err }, "Tool execution error");
+            }
+          }
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: toolResult,
+          });
+        }
+        continue;
+      }
+
+      return { status: "error", result: null, thinking: null, error: "Response has no content or tool calls" };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error({ group: group.name, error: errorMessage }, "Agent error");
+      if (onOutput) {
+        await onOutput({ status: "error", result: null, thinking: null, error: errorMessage });
+      }
+      return { status: "error", result: null, thinking: null, error: errorMessage };
     }
-
-    // 5. 解析 JSON 响应
-    const data = (await response.json()) as {
-      // OpenAI 格式的响应
-      choices?: { message?: { content?: string } }[];
-    };
-
-    // 6. 提取回复内容
-    const content = data.choices?.[0]?.message?.content || "";
-
-    // 7. 如果有回调则调用（用于流式输出时的实时反馈）
-    if (onOutput) {
-      await onOutput({ status: "success", result: content });
-    }
-
-    // 8. 返回成功结果
-    return {
-      status: "success",
-      result: content,
-    };
-  } catch (err) {
-    // 处理错误
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error({ group: group.name, error: errorMessage }, "Agent 错误");
-
-    // 如果有回调则调用
-    if (onOutput) {
-      await onOutput({ status: "error", result: null, error: errorMessage });
-    }
-
-    // 返回错误结果
-    return {
-      status: "error",
-      result: null,
-      error: errorMessage,
-    };
   }
+
+  return { status: "error", result: null, thinking: null, error: "Max tool loop iterations exceeded" };
 }

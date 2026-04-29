@@ -22,6 +22,11 @@ const envConfig = readEnvFile([
   "MODEL_NAME", // 模型名称
   "MODEL_BASE_URL", // API 基础 URL
   "MODEL_API_KEY", // API 密钥
+  "WEBCLIENT_PORT", // Web 界面端口
+  "THINKING_MODE", // 思考模式 (non-thinking|thinking|thinking_max)
+  "MODEL_NAME_FALLBACK", // 备用模型
+  "MODEL_BASE_URL_FALLBACK", // 备用 API 地址
+  "MODEL_API_KEY_FALLBACK", // 备用 API 密钥
 ]);
 
 // ============== 核心配置 ==============
@@ -42,6 +47,11 @@ export const ASSISTANT_NAME =
  * 每次检查新消息的间隔时间
  * 默认: 2000ms（2秒）
  */
+export const WEBCLIENT_PORT = parseInt(
+  process.env.WEBCLIENT_PORT || envConfig.WEBCLIENT_PORT || "0",
+  10,
+);
+
 export const POLL_INTERVAL = 2000;
 
 // ============== 目录配置 ==============
@@ -128,6 +138,58 @@ export const MAX_MESSAGES_PER_PROMPT = Math.max(
   1,
   parseInt(process.env.MAX_MESSAGES_PER_PROMPT || "10", 10) || 10,
 );
+
+export const STREAMING_ENABLED = process.env.STREAMING_ENABLED !== "false";
+
+const thinkingModeRaw =
+  process.env.THINKING_MODE || envConfig.THINKING_MODE || "thinking";
+
+export const THINKING_MODE = (
+  ["thinking", "thinking_max"] as const
+).includes(
+  thinkingModeRaw as "thinking" | "thinking_max",
+)
+  ? thinkingModeRaw
+  : "thinking";
+
+export const MAX_CONTEXT_MESSAGES = Math.max(
+  1,
+  parseInt(process.env.MAX_CONTEXT_MESSAGES || "20", 10) || 20,
+);
+
+export const CONTEXT_SUMMARIZE_THRESHOLD = Math.max(
+  1,
+  parseInt(process.env.CONTEXT_SUMMARIZE_THRESHOLD || "40", 10) || 40,
+);
+
+// ============== 可靠性配置 ==============
+
+export const MAX_RETRIES = Math.max(
+  0,
+  parseInt(process.env.MAX_RETRIES || "3", 10) || 3,
+);
+
+export const RETRY_BASE_DELAY = Math.max(
+  100,
+  parseInt(process.env.RETRY_BASE_DELAY || "1000", 10) || 1000,
+);
+
+export const RATE_LIMIT_MAX = Math.max(
+  1,
+  parseInt(process.env.RATE_LIMIT_MAX || "10", 10) || 10,
+);
+
+export const RATE_LIMIT_WINDOW = Math.max(
+  1000,
+  parseInt(process.env.RATE_LIMIT_WINDOW || "60000", 10) || 60000,
+);
+
+export const MODEL_NAME_FALLBACK =
+  process.env.MODEL_NAME_FALLBACK || "";
+export const MODEL_BASE_URL_FALLBACK =
+  process.env.MODEL_BASE_URL_FALLBACK || "";
+export const MODEL_API_KEY_FALLBACK =
+  process.env.MODEL_API_KEY_FALLBACK || "";
 
 // ============== 触发词配置 ==============
 
