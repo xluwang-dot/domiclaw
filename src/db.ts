@@ -18,7 +18,6 @@ import fs from "fs";
 import path from "path";
 
 import { STORE_DIR } from "./config.js";
-import { isValidGroupFolder } from "./group-folder.js";
 import { logger } from "./logger.js";
 import { NewMessage, RegisteredGroup } from "./types.js";
 

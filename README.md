@@ -101,7 +101,6 @@ domiclaw/
 │   ├── logger.ts             # 结构化控制台日志
 │   ├── types.ts              # 类型定义
 │   ├── env.ts                # .env 文件解析
-│   ├── group-folder.ts       # 群组文件夹验证
 │   ├── channels/
 │   │   ├── index.ts          # 频道注册表
 │   │   ├── tui.ts            # 终端 UI 频道
@@ -115,7 +114,6 @@ domiclaw/
 │       └── reminder.ts       # schedule_daily_review, cancel_reminder, list_reminders
 ├── web/
 │   └── index.html            # Vue 3 CDN 单页应用（画布 + 聊天 + 测验）
-├── groups/                   # 每个群组的工作目录 + CLAUDE.md 提示词
 ├── store/                    # SQLite 数据库
 ├── data/                     # 运行时数据（IPC）
 ├── doc/                      # 文档
