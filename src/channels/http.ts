@@ -35,6 +35,7 @@ import {
   addKnowledgePoint,
   searchKnowledgePoints,
   validateKnowledgePointLevel,
+  KnowledgePointRow,
   getAllKnowledgePoints,
   updateKnowledgePoint,
   deleteKnowledgePoint,
@@ -134,44 +135,107 @@ function buildGraphData(): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const edges: GraphEdge[] = [];
 
   const subjects = getAllSubjects();
-  const cols = 3;
-  subjects.forEach((s, i) => {
-    const row = Math.floor(i / cols);
-    const col = i % cols;
-    nodes.push({
-      id: `subj-${s.id}`,
-      type: "subject",
-      label: s.name,
-      x: 200 + col * 300,
-      y: 150 + row * 200,
-      meta: { description: s.description },
-    });
-  });
+  const allKps = getAllKnowledgePoints();
+
+  // Group KPs by subject, then by parent_id
+  const kpsBySubject: Record<number, KnowledgePointRow[]> = {};
+  const kpsByParent: Record<number, KnowledgePointRow[]> = {};
+  for (const kp of allKps) {
+    if (!kpsBySubject[kp.subject_id]) kpsBySubject[kp.subject_id] = [];
+    kpsBySubject[kp.subject_id].push(kp);
+    const pid = kp.parent_id ?? 0;
+    if (!kpsByParent[pid]) kpsByParent[pid] = [];
+    kpsByParent[pid].push(kp);
+  }
+
+  // Layout constants
+  const layerH = 70;  // vertical spacing between layers
+  const nodeW = 130;  // horizontal spacing between nodes
+  const startX = 200;
+  const startY = 100;
+
+  // Process each subject
+  let subjectCol = 0;
+  const subjectSpacingX = 400;
 
   for (const s of subjects) {
-    const kps = getKnowledgePointsBySubject(s.id);
-    kps.forEach((kp, ki) => {
-      const kpId = `kp-${kp.id}`;
-      const subjectNode = nodes.find((n) => n.id === `subj-${s.id}`);
-      const sx = subjectNode?.x ?? 200;
-      const sy = subjectNode?.y ?? 150;
-      const angle = (ki / Math.max(kps.length, 1)) * Math.PI * 2 - Math.PI / 2;
-      const radius = 180;
+    const subjKps = kpsBySubject[s.id] || [];
+    const roots = subjKps.filter((k) => k.level_type === "root" && !k.parent_id);
+
+    if (roots.length === 0) {
+      // Legacy: no tree structure — show flat nodes around subject
+      const sx = startX + subjectCol * subjectSpacingX;
+      const sy = startY;
       nodes.push({
-        id: kpId,
-        type: "knowledge_point",
-        label: kp.title,
-        x: sx + Math.cos(angle) * radius,
-        y: sy + Math.sin(angle) * radius + 60,
-        meta: { subjectId: s.id, tags: kp.tags },
+        id: `subj-${s.id}`, type: "subject", label: s.name_cn || s.name,
+        x: sx, y: sy,
+        meta: { description: s.description },
       });
-      edges.push({
-        id: `edge-kp-${kp.id}`,
-        fromId: `subj-${s.id}`,
-        toId: kpId,
-        label: "包含",
+      const flatKps = subjKps.filter((k) => k.level_type !== "root");
+      flatKps.forEach((kp, ki) => {
+        const angle = (ki / Math.max(flatKps.length, 1)) * Math.PI * 2 - Math.PI / 2;
+        const radius = 160;
+        nodes.push({
+          id: `kp-${kp.id}`, type: "knowledge_point", label: kp.title,
+          x: sx + Math.cos(angle) * radius,
+          y: sy + Math.sin(angle) * radius + 50,
+          meta: { subjectId: s.id, levelType: kp.level_type, tags: kp.tags },
+        });
+        edges.push({ id: `edge-kp-${kp.id}`, fromId: `subj-${s.id}`, toId: `kp-${kp.id}`, label: "包含" });
       });
+      subjectCol++;
+      continue;
+    }
+
+    // Tree layout: breadth-first per level
+    const root = roots[0];
+    const baseX = startX + subjectCol * subjectSpacingX;
+    let maxWidth = 0;
+
+    // Place root node
+    nodes.push({
+      id: `subj-${s.id}`, type: "subject", label: root.title,
+      x: baseX, y: startY,
+      meta: { description: s.description, name_en: s.name, name_cn: s.name_cn },
     });
+
+    // Helper: place children recursively
+    function placeChildren(parentId: number, parentX: number, parentY: number, layer: number): number {
+      const children = kpsByParent[parentId] || [];
+      if (children.length === 0) return parentX;
+
+      const totalW = Math.max(children.length * nodeW, nodeW);
+      const cx = parentX - totalW / 2 + nodeW / 2;
+      let rightmost = parentX;
+
+      children.forEach((child, ci) => {
+        const nx = cx + ci * nodeW;
+        const ny = parentY + layerH;
+        const nodeType = child.level_type === "knowledge_point" ? "knowledge_point" : "knowledge_point";
+        nodes.push({
+          id: `kp-${child.id}`, type: nodeType, label: child.title,
+          x: nx, y: ny,
+          meta: { subjectId: s.id, levelType: child.level_type, tags: child.tags },
+        });
+        edges.push({
+          id: `edge-${parentId}-${child.id}`,
+          fromId: parentId === root.id ? `subj-${s.id}` : `kp-${parentId}`,
+          toId: `kp-${child.id}`,
+          label: "包含",
+        });
+
+        const childRight = placeChildren(child.id, nx, ny, layer + 1);
+        if (childRight > rightmost) rightmost = childRight;
+      });
+
+      return Math.max(rightmost, parentX);
+    }
+
+    const rightEdge = placeChildren(root.id, baseX, startY + layerH, 1);
+    const width = rightEdge - baseX;
+    if (width > maxWidth) maxWidth = width;
+
+    subjectCol++;
   }
 
   return { nodes, edges };
