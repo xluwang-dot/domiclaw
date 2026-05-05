@@ -563,6 +563,35 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     res.status(202).json({ status: "processing" });
   });
 
+  // POST /api/bug-report
+  app.post("/api/bug-report", requireAuth, (req: Request, res: Response) => {
+    const { title, description, page } = req.body as Record<string, unknown>;
+    if (!title || typeof title !== "string") {
+      res.status(400).json({ error: "title required" });
+      return;
+    }
+
+    const buglistPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../buglist.md");
+    let content = "";
+    try { content = fs.readFileSync(buglistPath, "utf-8"); } catch { /* file doesn't exist yet */ }
+
+    // Parse existing max bug number
+    let maxId = 0;
+    for (const line of content.split("\n")) {
+      const m = line.match(/^\|\s*(\d+)\s*\|/);
+      if (m) maxId = Math.max(maxId, parseInt(m[1], 10));
+    }
+
+    const nextId = maxId + 1;
+    const date = new Date().toISOString().substring(0, 10);
+    const pageInfo = (page as string) || "unknown";
+    const desc = (description as string) || "";
+    const line = `| ${nextId} | 待修复 | 中 | ${title} | ${pageInfo}${desc ? " — " + desc : ""} | — | ${date} |\n`;
+
+    fs.appendFileSync(buglistPath, line, "utf-8");
+    res.json({ id: nextId });
+  });
+
   // POST /api/quiz/create
   app.post("/api/quiz/create", requireAuth, async (req: Request, res: Response) => {
     const userId = req.session.userId!;
