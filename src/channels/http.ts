@@ -1174,6 +1174,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     }
     sseClients.clear();
     server.close(() => process.exit(0));
+    // Force exit after 2s if server.close() hangs on keep-alive connections
+    setTimeout(() => process.exit(0), 2000);
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
