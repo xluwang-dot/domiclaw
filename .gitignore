@@ -12,3 +12,10 @@ store/messages.db
 .env.local
 *.env.*
 *.log
+
+# Task & bug tracking (local only)
+tasklist.md
+buglist.md
+
+# Project instructions (local only)
+CLAUDE.md
