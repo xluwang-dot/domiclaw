@@ -98,14 +98,21 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <div class="form-row">
 <select v-model="kpSubjectId"><option value="">All subjects</option>
 <option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
+<select v-model="kpLevelFilter" @change="fetchKPs"><option value="">All levels</option>
+<option value="knowledge_point">knowledge_point only</option>
+<option value="root">root</option><option value="module">module</option><option value="domain">domain</option><option value="unit">unit</option><option value="chapter">chapter</option><option value="section">section</option></select>
 <button class="btn btn-blue" @click="fetchKPs">Filter</button>
 <button class="btn btn-green" @click="showKpDialog=true;editingKp=null" style="margin-left:auto">+ Add</button>
 <button class="btn btn-gray" @click="showKpImport=true" style="margin-left:4px">Import</button>
 </div>
-<table v-if="kps.length"><thead><tr><th>ID</th><th>Lv</th><th>Title</th><th>Content</th><th>Parent</th><th>Actions</th></tr></thead>
-<tbody><tr v-for="k in kps" :key="k.id">
-<td>{{k.id}}</td><td style="font-size:10px;color:#0a84ff">{{k.level_type||'kp'}}</td><td>{{k.title}}</td><td>{{(k.content||'').substring(0,60)}}...</td>
-<td>{{getKpParentName(k.parent_id)||'-'}}</td>
+<table v-if="displayKps.length"><thead><tr><th>ID</th><th>L1</th><th>L2</th><th>L3</th><th>KP Title</th><th>Content</th><th>Actions</th></tr></thead>
+<tbody><tr v-for="k in displayKps" :key="k.id">
+<td>{{k.id}}</td>
+<td style="font-size:11px">{{k._path[0]||'-'}}</td>
+<td style="font-size:11px">{{k._path[1]||'-'}}</td>
+<td style="font-size:11px">{{k._path[2]||'-'}}</td>
+<td><b>{{k._path[3]||k.title}}</b></td>
+<td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{k._isLeaf?k.content:''}}</td>
 <td>
 <button class="btn-sm btn-blue" @click="editKp(k)">Edit</button>
 <button class="btn-sm btn-red" @click="removeKp(k.id)">Delete</button>
@@ -274,9 +281,10 @@ const tab=ref('subjects'),user=ref(null);
 // Subjects
 const subjects=ref([]),subjName=ref(''),subjDesc=ref('');
 // KPs
-const kps=ref([]),kpSubjectId=ref(''),allKps=ref([]),showKpDialog=ref(false),editingKp=ref(null);
+const kps=ref([]),kpSubjectId=ref(''),kpLevelFilter=ref('knowledge_point'),allKps=ref([]),showKpDialog=ref(false),editingKp=ref(null);
 const kpForm=ref({subject_id:'',title:'',content:'',level_type:'knowledge_point',sort_order:0,tags:'',parent_id:null});
 const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null);
+const displayKps=ref([]);
 // Questions
 const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]);
 const showQDialog=ref(false),editingQ=ref(null),qImportInput=ref(null),dupes=ref([]);
@@ -303,7 +311,8 @@ async function createSubject(){if(!subjName.value)return;await apiPost('/api/adm
 async function removeSubject(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/subjects/'+id);fetchSubjects()}
 
 // KPs
-async function fetchKPs(){const sid=kpSubjectId.value;const url=sid?'/api/admin/knowledge-points?subject_id='+sid:'/api/admin/knowledge-points';kps.value=await apiGet(url)||[]}
+async function fetchKPs(){const sid=kpSubjectId.value;const url=sid?'/api/admin/knowledge-points?subject_id='+sid:'/api/admin/knowledge-points';kps.value=await apiGet(url)||[];buildDisplayKPs()}
+function buildDisplayKPs(){const raw=kps.value;const map={};raw.forEach(k=>{map[k.id]=k});const lv=kpLevelFilter.value;displayKPs.value=raw.filter(k=>{if(lv)return k.level_type===lv;return true}).map(k=>{const path=[],walk=(id)=>{if(!id)return;const n=map[id];if(!n||n.level_type==='root')return;walk(n.parent_id);path.push(n.title)};walk(k.parent_id);path.push(k.title);while(path.length<4)path.unshift('-');return{...k,_path:path,_isLeaf:k.level_type==='knowledge_point'}})}
 async function loadAllKps(){allKps.value=await apiGet('/api/admin/knowledge-points')||[]}
 async function saveKp(){const f=kpForm.value;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content,level_type:f.level_type,sort_order:Number(f.sort_order),tags:f.tags||null,parent_id:f.parent_id||null};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
 function editKp(k){editingKp.value=k;kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content,level_type:k.level_type||'knowledge_point',sort_order:k.sort_order||0,tags:k.tags||'',parent_id:k.parent_id||null};showKpDialog.value=true}
@@ -340,7 +349,7 @@ async function deleteUser(id,username){if(!confirm('Delete user "'+username+'" a
 onMounted(async()=>{await checkAuth();await fetchSubjects();await loadAllKps();await fetchQuestions();await fetchUsers()});
 return{tab,user,logout,window,
 subjects,subjName,subjDesc,createSubject,removeSubject,
-kps,kpSubjectId,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,removeKp,fetchKPs,getKpParentName,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,doKpImport,
+kps,kpSubjectId,kpLevelFilter,displayKps,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,removeKp,fetchKPs,getKpParentName,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,doKpImport,
 qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,qImportInput,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,triggerQImport,handleQImport,fetchQuestions,checkDedup,
 uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers};
 }}).mount('#app');</script>
