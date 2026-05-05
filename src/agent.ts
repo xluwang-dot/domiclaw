@@ -2,28 +2,18 @@ import fs from "fs";
 import path from "path";
 
 import {
-  MODEL_NAME,
-  MODEL_BASE_URL,
-  MODEL_API_KEY,
-  GROUPS_DIR,
-  STREAMING_ENABLED,
-  THINKING_MODE,
-  MAX_CONTEXT_MESSAGES,
-  CONTEXT_SUMMARIZE_THRESHOLD,
-  MAX_RETRIES,
-  RETRY_BASE_DELAY,
-  MODEL_NAME_FALLBACK,
-  MODEL_BASE_URL_FALLBACK,
-  MODEL_API_KEY_FALLBACK,
+  MODEL_NAME, MODEL_BASE_URL, MODEL_API_KEY,
+  GROUPS_DIR, STREAMING_ENABLED, THINKING_MODE,
+  MAX_CONTEXT_MESSAGES, CONTEXT_SUMMARIZE_THRESHOLD,
+  MAX_RETRIES, RETRY_BASE_DELAY,
+  MODEL_NAME_FALLBACK, MODEL_BASE_URL_FALLBACK, MODEL_API_KEY_FALLBACK,
 } from "./config.js";
 
 import { logger } from "./logger.js";
 import { RegisteredGroup, ToolContext, ToolDefinition } from "./types.js";
 import { getTool, getAllToolDefinitions } from "./tools/index.js";
 import {
-  getRecentMessages,
-  getSessionContext,
-  getWeakAreas,
+  getRecentMessages, getSessionContext, getWeakAreas,
 } from "./db.js";
 
 import "./tools/quiz.js";
@@ -31,18 +21,19 @@ import "./tools/knowledge.js";
 import "./tools/review.js";
 import "./tools/study.js";
 import "./tools/reminder.js";
+import "./tools/analyze.js";
 
 const MAX_TOOL_LOOP = 10;
 
 export interface AgentInput {
   prompt: string;
   sessionId?: string;
-  groupFolder: string;
   chatJid: string;
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  userId: number;
 }
 
 export interface AgentOutput {
@@ -65,10 +56,7 @@ interface ChatMessage {
 interface ToolCall {
   id: string;
   type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
+  function: { name: string; arguments: string };
 }
 
 interface StreamResult {
@@ -80,13 +68,10 @@ interface StreamResult {
 }
 
 function buildSystemPrompt(
-  groupFolder: string,
-  assistantName: string,
-  chatJid: string,
+  userId: number, assistantName: string,
 ): string {
-  // Base instructions from CLAUDE.md or default
   let instructions: string;
-  const mdPath = path.join(GROUPS_DIR, groupFolder, "CLAUDE.md");
+  const mdPath = path.join(GROUPS_DIR, "main", "CLAUDE.md");
   try {
     const content = fs.readFileSync(mdPath, "utf-8").trim();
     instructions = content.startsWith("# ")
@@ -96,9 +81,8 @@ function buildSystemPrompt(
     instructions = `You are ${assistantName}, a helpful educational assistant. You help students study by creating quizzes, storing knowledge points, tracking wrong questions, and providing spaced repetition reviews. Use the available tools to manage the student's learning.`;
   }
 
-  // Enrich with session context
-  const ctx = getSessionContext(chatJid);
-  const weakAreas = getWeakAreas(chatJid);
+  const ctx = getSessionContext(userId);
+  const weakAreas = getWeakAreas(userId);
 
   const lines: string[] = [];
 
@@ -111,17 +95,13 @@ function buildSystemPrompt(
   }
 
   lines.push(instructions);
-
   return lines.join("\n");
 }
 
 function buildSystemPromptScheduled(
-  groupFolder: string,
-  assistantName: string,
-  chatJid: string,
+  userId: number, assistantName: string,
 ): string {
-  const base = buildSystemPrompt(groupFolder, assistantName, chatJid);
-
+  const base = buildSystemPrompt(userId, assistantName);
   const checkInPrefix = `[Scheduled Check-in]
 You are performing a scheduled check-in. The student did not initiate this.
 Be proactive but not pushy. Check on their progress and offer help.
@@ -132,14 +112,10 @@ Be proactive but not pushy. Check on their progress and offer help.
 4. Be brief and encouraging — aim for 2-3 sentences max
 
 `;
-
   return checkInPrefix + base;
 }
 
-async function retry<T>(
-  fn: () => Promise<T>,
-  label: string,
-): Promise<T> {
+async function retry<T>(fn: () => Promise<T>, label: string): Promise<T> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       return await fn();
@@ -154,24 +130,17 @@ async function retry<T>(
 }
 
 interface ModelConfig {
-  name: string;
-  baseUrl: string;
-  apiKey: string;
+  name: string; baseUrl: string; apiKey: string;
 }
 
 async function nonStreamingApiCall(
-  messages: ChatMessage[],
-  tools: ToolDefinition[],
-  model?: ModelConfig,
+  messages: ChatMessage[], tools: ToolDefinition[], model?: ModelConfig,
 ): Promise<{ content: string | null; toolCalls: ToolCall[]; reasoningContent: string | null }> {
   const m = model || { name: MODEL_NAME, baseUrl: MODEL_BASE_URL, apiKey: MODEL_API_KEY };
 
   const doCall = async () => {
     const body: Record<string, unknown> = {
-      model: m.name,
-      messages,
-      stream: false,
-      thinking_mode: THINKING_MODE,
+      model: m.name, messages, stream: false, thinking_mode: THINKING_MODE,
     };
     if (tools.length > 0) body.tools = tools;
 
@@ -182,85 +151,57 @@ async function nonStreamingApiCall(
 
     const response = await fetch(`${m.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${m.apiKey}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${m.apiKey}` },
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(
-        { status: response.status, body: errorText.substring(0, 500) },
-        "API error response",
-      );
+      logger.error({ status: response.status, body: errorText.substring(0, 500) }, "API error response");
       throw new Error(`API error: ${response.status} - ${errorText}`);
     }
 
     const data = (await response.json()) as {
-      choices?: {
-        message?: {
-          content?: string | null;
-          reasoning_content?: string | null;
-          tool_calls?: ToolCall[];
-        };
-        finish_reason?: string;
-      }[];
+      choices?: { message?: { content?: string | null; reasoning_content?: string | null; tool_calls?: ToolCall[] }; finish_reason?: string }[];
     };
 
     const msg = data.choices?.[0]?.message;
     const finishReason = data.choices?.[0]?.finish_reason;
-    const contentPreview = msg?.content?.substring(0, 200) || "";
     logger.info(
-      {
-        contentLen: msg?.content?.length || 0,
-        reasoningLen: msg?.reasoning_content?.length || 0,
-        toolCallCount: msg?.tool_calls?.length || 0,
-        finishReason,
-        contentPreview,
-      },
+      { contentLen: msg?.content?.length || 0, reasoningLen: msg?.reasoning_content?.length || 0,
+        toolCallCount: msg?.tool_calls?.length || 0, finishReason,
+        contentPreview: msg?.content?.substring(0, 200) || "" },
       "API response (non-streaming)",
     );
 
     return {
-      content: msg?.content || null,
-      toolCalls: msg?.tool_calls || [],
+      content: msg?.content || null, toolCalls: msg?.tool_calls || [],
       reasoningContent: msg?.reasoning_content || null,
     };
   };
 
-  // Try primary, failover to fallback if configured
   try {
     return await retry(doCall, "api-call");
   } catch (err) {
     if (MODEL_NAME_FALLBACK && MODEL_API_KEY_FALLBACK) {
       logger.warn("Primary model failed, trying fallback");
-      const fallback: ModelConfig = {
-        name: MODEL_NAME_FALLBACK,
-        baseUrl: MODEL_BASE_URL_FALLBACK || MODEL_BASE_URL,
-        apiKey: MODEL_API_KEY_FALLBACK,
-      };
-      return nonStreamingApiCall(messages, tools, fallback);
+      return nonStreamingApiCall(messages, tools, {
+        name: MODEL_NAME_FALLBACK, baseUrl: MODEL_BASE_URL_FALLBACK || MODEL_BASE_URL, apiKey: MODEL_API_KEY_FALLBACK,
+      });
     }
     throw err;
   }
 }
 
 async function streamApiCall(
-  messages: ChatMessage[],
-  tools: ToolDefinition[],
-  onOutput?: (output: AgentOutput) => Promise<void>,
-  model?: ModelConfig,
+  messages: ChatMessage[], tools: ToolDefinition[],
+  onOutput?: (output: AgentOutput) => Promise<void>, model?: ModelConfig,
 ): Promise<StreamResult> {
   const m = model || { name: MODEL_NAME, baseUrl: MODEL_BASE_URL, apiKey: MODEL_API_KEY };
 
   const doStream = async () => {
     const body: Record<string, unknown> = {
-      model: m.name,
-      messages,
-      stream: true,
-      thinking_mode: THINKING_MODE,
+      model: m.name, messages, stream: true, thinking_mode: THINKING_MODE,
     };
     if (tools.length > 0) body.tools = tools;
 
@@ -271,19 +212,13 @@ async function streamApiCall(
 
     const response = await fetch(`${m.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${m.apiKey}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${m.apiKey}` },
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      logger.error(
-        { status: response.status, body: errorText.substring(0, 500) },
-        "API stream error response",
-      );
+      logger.error({ status: response.status, body: errorText.substring(0, 500) }, "API stream error response");
       throw new Error(`API error: ${response.status} - ${errorText}`);
     }
 
@@ -296,12 +231,9 @@ async function streamApiCall(
   } catch (err) {
     if (MODEL_NAME_FALLBACK && MODEL_API_KEY_FALLBACK) {
       logger.warn("Primary model failed for stream, trying fallback");
-      const fallback: ModelConfig = {
-        name: MODEL_NAME_FALLBACK,
-        baseUrl: MODEL_BASE_URL_FALLBACK || MODEL_BASE_URL,
-        apiKey: MODEL_API_KEY_FALLBACK,
-      };
-      return streamApiCall(messages, tools, onOutput, fallback);
+      return streamApiCall(messages, tools, onOutput, {
+        name: MODEL_NAME_FALLBACK, baseUrl: MODEL_BASE_URL_FALLBACK || MODEL_BASE_URL, apiKey: MODEL_API_KEY_FALLBACK,
+      });
     }
     throw err;
   }
@@ -334,30 +266,19 @@ async function streamApiCall(
         const delta = json.choices?.[0]?.delta;
         const fr = json.choices?.[0]?.finish_reason;
         if (fr) finishReason = fr;
-
         if (!delta) continue;
 
         if (delta.reasoning_content) {
           thinking += delta.reasoning_content;
           if (onOutput) {
-            await onOutput({
-              status: "success",
-              result: null,
-              thinking: delta.reasoning_content,
-              isPartial: true,
-            });
+            await onOutput({ status: "success", result: null, thinking: delta.reasoning_content, isPartial: true });
           }
         }
 
         if (delta.content) {
           content += delta.content;
           if (onOutput) {
-            await onOutput({
-              status: "success",
-              result: delta.content,
-              thinking: null,
-              isPartial: true,
-            });
+            await onOutput({ status: "success", result: delta.content, thinking: null, isPartial: true });
           }
         }
 
@@ -370,29 +291,17 @@ async function streamApiCall(
             toolCallAccum.set(tc.index, existing);
           }
         }
-      } catch {
-        // Skip malformed JSON lines
-      }
+      } catch { /* skip malformed JSON */ }
     }
   }
 
   const toolCalls: ToolCall[] = [...toolCallAccum.values()]
     .filter((tc) => tc.id)
-    .map((tc) => ({
-      id: tc.id,
-      type: "function" as const,
-      function: { name: tc.name, arguments: tc.args },
-    }));
+    .map((tc) => ({ id: tc.id, type: "function" as const, function: { name: tc.name, arguments: tc.args } }));
 
   logger.info(
-    {
-      contentLen: content.length,
-      thinkingLen: thinking.length,
-      toolCallCount: toolCalls.length,
-      finishReason,
-      contentPreview: content.substring(0, 200),
-      thinkingPreview: thinking.substring(0, 200),
-    },
+    { contentLen: content.length, thinkingLen: thinking.length, toolCallCount: toolCalls.length,
+      finishReason, contentPreview: content.substring(0, 200), thinkingPreview: thinking.substring(0, 200) },
     "API stream complete",
   );
 
@@ -400,22 +309,16 @@ async function streamApiCall(
 }
 
 export async function runAgent(
-  group: RegisteredGroup,
-  input: AgentInput,
+  group: RegisteredGroup, input: AgentInput,
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<AgentOutput> {
   const groupDir = path.join(GROUPS_DIR, group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
   logger.info(
-    {
-      group: group.name,
-      model: MODEL_NAME,
-      streaming: STREAMING_ENABLED,
-      thinkingMode: THINKING_MODE,
-      scheduled: input.isScheduledTask || false,
-      promptLen: input.prompt.length,
-    },
+    { group: group.name, model: MODEL_NAME, streaming: STREAMING_ENABLED,
+      thinkingMode: THINKING_MODE, scheduled: input.isScheduledTask || false,
+      userId: input.userId, promptLen: input.prompt.length },
     "Agent starting",
   );
 
@@ -427,12 +330,13 @@ export async function runAgent(
 
   const assistantName = input.assistantName || "Domiclaw";
   const systemPrompt = input.isScheduledTask
-    ? buildSystemPromptScheduled(group.folder, assistantName, input.chatJid)
-    : buildSystemPrompt(group.folder, assistantName, input.chatJid);
+    ? buildSystemPromptScheduled(input.userId, assistantName)
+    : buildSystemPrompt(input.userId, assistantName);
   const tools = getAllToolDefinitions();
   const toolCtx: ToolContext = {
     groupFolder: groupDir,
     chatJid: input.chatJid,
+    userId: input.userId,
   };
 
   const messages: ChatMessage[] = [
@@ -444,34 +348,20 @@ export async function runAgent(
     logger.info({ iteration, msgCount: messages.length }, "Calling model API");
 
     try {
-      // Stream only on first iteration; tool-calling follow-ups use non-streaming
       if (iteration === 0 && STREAMING_ENABLED) {
         const streamResult = await streamApiCall(messages, tools, onOutput);
 
-        // Model returned text content without tool calls
         if (streamResult.content && streamResult.toolCalls.length === 0) {
           if (onOutput) {
-            await onOutput({
-              status: "success",
-              result: streamResult.content,
-              thinking: null,
-              isPartial: false,
-            });
+            await onOutput({ status: "success", result: streamResult.content, thinking: null, isPartial: false });
           }
-          return {
-            status: "success",
-            result: streamResult.content,
-            thinking: streamResult.thinking || null,
-          };
+          return { status: "success", result: streamResult.content, thinking: streamResult.thinking || null };
         }
 
-        // Model requested tool calls
         if (streamResult.toolCalls.length > 0) {
           messages.push({
-            role: "assistant",
-            content: streamResult.content || null,
-            reasoning_content: streamResult.reasoningContent || undefined,
-            tool_calls: streamResult.toolCalls,
+            role: "assistant", content: streamResult.content || null,
+            reasoning_content: streamResult.reasoningContent || undefined, tool_calls: streamResult.toolCalls,
           });
 
           for (const tc of streamResult.toolCalls) {
@@ -492,35 +382,25 @@ export async function runAgent(
                 logger.error({ tool: toolName, err }, "Tool execution error");
               }
             }
-            messages.push({
-              role: "tool",
-              tool_call_id: tc.id,
-              content: toolResult,
-            });
+            messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
           }
           continue;
         }
 
-        // Stream finished without content — error
         return { status: "error", result: null, thinking: null, error: "Stream completed without content" };
       }
 
-      // Non-streaming path (tool-calling follow-ups or streaming disabled)
       const result = await nonStreamingApiCall(messages, tools);
 
       if (result.content) {
-        if (onOutput) {
-          await onOutput({ status: "success", result: result.content, thinking: null });
-        }
+        if (onOutput) await onOutput({ status: "success", result: result.content, thinking: null });
         return { status: "success", result: result.content, thinking: null };
       }
 
       if (result.toolCalls.length > 0) {
         messages.push({
-          role: "assistant",
-          content: result.content,
-          reasoning_content: result.reasoningContent || undefined,
-          tool_calls: result.toolCalls,
+          role: "assistant", content: result.content,
+          reasoning_content: result.reasoningContent || undefined, tool_calls: result.toolCalls,
         });
 
         for (const tc of result.toolCalls) {
@@ -541,11 +421,7 @@ export async function runAgent(
               logger.error({ tool: toolName, err }, "Tool execution error");
             }
           }
-          messages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: toolResult,
-          });
+          messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
         }
         continue;
       }
@@ -554,9 +430,7 @@ export async function runAgent(
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error({ group: group.name, error: errorMessage }, "Agent error");
-      if (onOutput) {
-        await onOutput({ status: "error", result: null, thinking: null, error: errorMessage });
-      }
+      if (onOutput) await onOutput({ status: "error", result: null, thinking: null, error: errorMessage });
       return { status: "error", result: null, thinking: null, error: errorMessage };
     }
   }

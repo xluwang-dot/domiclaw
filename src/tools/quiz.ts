@@ -10,6 +10,10 @@ import {
   recordQuizAnswer,
   recordWrongQuestion,
   searchKnowledgePoints,
+  updateKpMastery,
+  setWrongQuestionRootKp,
+  upsertKpWeakness,
+  clearKpWeaknessIfMastered,
 } from "../db.js";
 
 function checkAnswer(studentAnswer: string, correctAnswer: string, questionType: string): boolean {
@@ -62,7 +66,7 @@ registerTool("create_quiz", {
 
     // Select random questions
     const selected = questions.sort(() => Math.random() - 0.5).slice(0, Math.min(questionCount, questions.length));
-    const sessionId = createQuizSession(subject.id, ctx.chatJid);
+    const sessionId = createQuizSession(subject.id, ctx.userId);
 
     // Return the full quiz with all questions
     let response = `Quiz started! Subject: ${subjectName}, Session ID: ${sessionId}, Questions: ${selected.length}\n\n`;
@@ -97,15 +101,33 @@ registerTool("record_answer", {
     const sessionId = args.session_id as number;
     const questionId = args.question_id as number;
     const studentAnswer = args.answer as string;
+    const userId = ctx.userId;
 
     const question = getQuestionById(questionId);
     if (!question) return `Question ${questionId} not found.`;
 
     const correct = checkAnswer(studentAnswer, question.answer, question.question_type);
-    recordQuizAnswer(sessionId, questionId, studentAnswer, correct);
+
+    // Collect associated knowledge points
+    const kpIds: number[] = [];
+    if (question.knowledge_point_id) {
+      kpIds.push(question.knowledge_point_id);
+    }
+
+    recordQuizAnswer(sessionId, questionId, studentAnswer, correct, correct ? undefined : kpIds);
 
     if (!correct) {
-      recordWrongQuestion(questionId, ctx.chatJid);
+      recordWrongQuestion(questionId, userId);
+      for (const kpId of kpIds) {
+        setWrongQuestionRootKp(questionId, userId, kpId);
+        updateKpMastery(userId, kpId, false);
+        upsertKpWeakness(userId, kpId, questionId);
+      }
+    } else {
+      for (const kpId of kpIds) {
+        updateKpMastery(userId, kpId, true);
+        clearKpWeaknessIfMastered(userId, kpId);
+      }
     }
 
     const answered = getQuizSessionAnswers(sessionId);
@@ -142,7 +164,7 @@ registerTool("export_wrong_questions", {
       if (!s) return `Subject "${subjectName}" not found.`;
       subjectId = s.id;
     }
-    const wrong = getWrongQuestionsBySubject(ctx.chatJid, subjectId);
+    const wrong = getWrongQuestionsBySubject(ctx.userId, subjectId);
     if (wrong.length === 0) return "No wrong questions to export. Great job!";
 
     const header = "Wrong Questions Export";

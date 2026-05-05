@@ -4,7 +4,7 @@ import {
   getActiveStudyPlan,
   getStudyPlan,
   getStudyPlanProgress,
-  getStudyPlansByJid,
+  getStudyPlansByUser,
   markPlanTaskDone,
   getSubjectByName,
 } from "../db.js";
@@ -70,7 +70,7 @@ registerTool("generate_study_plan", {
       completed: t.completed || false,
     }));
 
-    const planId = createStudyPlan(ctx.chatJid, title, tasks, startDate, endDate, subjectId);
+    const planId = createStudyPlan(ctx.userId, title, tasks, startDate, endDate, subjectId);
 
     const days = tasks.length;
     return `Study plan "${title}" created (ID: ${planId}). ${days} days from ${startDate} to ${endDate}.\n\n` +
@@ -97,7 +97,7 @@ registerTool("get_study_plan", {
   async execute(args, ctx) {
     const planId = args.plan_id as number | undefined;
 
-    const plan = planId ? getStudyPlan(planId) : getActiveStudyPlan(ctx.chatJid);
+    const plan = planId ? getStudyPlan(planId) : getActiveStudyPlan(ctx.userId);
     if (!plan) return "No study plan found. Ask me to generate one with your subjects and exam dates.";
 
     const progress = getStudyPlanProgress(plan.id);
@@ -170,7 +170,7 @@ registerTool("get_study_progress", {
     },
   },
   async execute(args, ctx) {
-    const plans = getStudyPlansByJid(ctx.chatJid);
+    const plans = getStudyPlansByUser(ctx.userId);
     if (plans.length === 0) {
       return "No study plans yet. Tell me your subjects and upcoming exam dates, and I'll create a study plan for you.";
     }

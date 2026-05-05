@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domiclaw — Admin</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#1e1e1e;color:#eee;min-height:100vh}
+.header{background:#2a2a2a;border-bottom:1px solid #444;padding:12px 20px;display:flex;justify-content:space-between;align-items:center}
+.header h2{font-size:18px}
+.header-right{display:flex;gap:8px;align-items:center}
+.header-right span{color:#888;font-size:13px}
+.btn{padding:6px 14px;border-radius:6px;border:none;cursor:pointer;font-size:13px}
+.btn-logout{background:#a33;color:#fff}.btn-logout:hover{background:#c44}
+.btn-app{background:#0a84ff;color:#fff}.btn-app:hover{background:#0066cc}
+.nav{display:flex;gap:0;background:#2a2a2a;border-bottom:1px solid #444;padding:0 20px}
+.nav button{padding:10px 20px;border:none;background:none;color:#aaa;cursor:pointer;font-size:14px;border-bottom:2px solid transparent}
+.nav button:hover{color:#fff}
+.nav button.active{color:#0a84ff;border-bottom-color:#0a84ff}
+.content{padding:16px;max-width:1200px;margin:0 auto}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #333;font-size:13px}
+th{color:#aaa;font-weight:600;font-size:11px;text-transform:uppercase}
+tr:hover{background:rgba(255,255,255,0.03)}
+.btn-sm{padding:3px 10px;border-radius:4px;border:none;cursor:pointer;font-size:11px;margin-right:3px}
+.btn-blue{background:#0a84ff;color:#fff}.btn-blue:hover{background:#0066cc}
+.btn-red{background:#a33;color:#fff}.btn-red:hover{background:#c44}
+.btn-gray{background:#555;color:#ccc}.btn-gray:hover{background:#666}
+.btn-green{background:#3a8;color:#fff}.btn-green:hover{background:#2a6}
+.form-row{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:flex-end}
+.form-row input,.form-row select,.form-row textarea{padding:7px 10px;border-radius:4px;border:1px solid #555;background:#2a2a2a;color:#eee;font-size:13px;outline:none}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:#0a84ff}
+.empty{color:#666;text-align:center;padding:32px;font-size:14px}
+.pagination{display:flex;gap:8px;justify-content:center;align-items:center;padding:12px}
+.pagination button{padding:4px 10px;border-radius:4px;border:1px solid #555;background:#333;color:#ccc;cursor:pointer;font-size:12px}
+.pagination button:disabled{opacity:.3;cursor:not-allowed}
+.pagination span{font-size:12px;color:#888}
+.dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100}
+.dialog{background:#2a2a2a;border:1px solid #444;border-radius:12px;padding:24px;width:560px;max-height:85vh;overflow-y:auto}
+.dialog h3{margin-bottom:14px;font-size:16px}
+.dialog textarea{padding:8px;border-radius:4px;border:1px solid #555;background:#2a2a2a;color:#eee;font-size:13px;outline:none;width:100%;min-height:80px;resize:vertical}
+.dialog textarea:focus{border-color:#0a84ff}
+.dialog-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
+.badge-pub{background:rgba(74,154,74,.3);color:#8c8}
+.badge-draft{background:rgba(224,192,85,.3);color:#ca8}
+.profile-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.profile-card{background:#333;border-radius:8px;padding:16px;text-align:center}
+.profile-card .num{font-size:28px;font-weight:700}
+.profile-card .lbl{font-size:11px;color:#888;margin-top:4px}
+</style>
+</head>
+<body>
+<div id="app">
+<div class="header"><h2>Domiclaw Admin</h2>
+<div class="header-right">
+<span v-if="user">{{ user.username }}</span>
+<button class="btn btn-logout" @click="logout">Logout</button>
+<button class="btn btn-app" @click="window.open('/app.html','_blank')">Open App</button>
+</div></div>
+
+<div class="nav">
+<button :class="{active:tab==='subjects'}" @click="tab='subjects'">Subjects</button>
+<button :class="{active:tab==='kps'}" @click="tab='kps'">Knowledge Points</button>
+<button :class="{active:tab==='questions'}" @click="tab='questions'">Questions</button>
+<button :class="{active:tab==='users'}" @click="tab='users'">Users</button>
+</div>
+
+<div class="content">
+<!-- Subjects -->
+<div v-if="tab==='subjects'">
+<div class="form-row">
+<input v-model="subjName" placeholder="Subject name" @keyup.enter="createSubject" />
+<input v-model="subjDesc" placeholder="Description" />
+<button class="btn btn-blue" @click="createSubject">Add</button>
+</div>
+<table v-if="subjects.length"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Actions</th></tr></thead>
+<tbody><tr v-for="s in subjects" :key="s.id">
+<td>{{s.id}}</td><td>{{s.name}}</td><td>{{s.description||'-'}}</td>
+<td><button class="btn-sm btn-red" @click="removeSubject(s.id)">Delete</button></td>
+</tr></tbody></table>
+<div v-else class="empty">No subjects.</div>
+</div>
+
+<!-- Knowledge Points -->
+<div v-if="tab==='kps'">
+<div class="form-row">
+<select v-model="kpSubjectId"><option value="">All subjects</option>
+<option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
+<button class="btn btn-blue" @click="fetchKPs">Filter</button>
+<button class="btn btn-green" @click="showKpDialog=true;editingKp=null" style="margin-left:auto">+ Add</button>
+</div>
+<table v-if="kps.length"><thead><tr><th>ID</th><th>Title</th><th>Content</th><th>Parent</th><th>Actions</th></tr></thead>
+<tbody><tr v-for="k in kps" :key="k.id">
+<td>{{k.id}}</td><td>{{k.title}}</td><td>{{(k.content||'').substring(0,60)}}...</td>
+<td>{{getKpParentName(k.parent_id)||'-'}}</td>
+<td>
+<button class="btn-sm btn-blue" @click="editKp(k)">Edit</button>
+<button class="btn-sm btn-red" @click="removeKp(k.id)">Delete</button>
+</td></tr></tbody></table>
+<div v-else class="empty">Select a subject to see KPs.</div>
+</div>
+
+<!-- Questions -->
+<div v-if="tab==='questions'">
+<div class="form-row">
+<select v-model="qSubjectId" @change="fetchQuestions"><option value="">All subjects</option>
+<option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
+<select v-model="qKpId" @change="fetchQuestions"><option value="">All KPs</option>
+<option v-for="k in qFilterKps" :key="k.id" :value="k.id">{{k.title}}</option></select>
+<select v-model="qStatus" @change="fetchQuestions">
+<option value="">All status</option><option value="published">Published</option><option value="draft">Draft</option></select>
+<button class="btn btn-blue" @click="showQDialog=true;editingQ=null">+ Add</button>
+<input type="file" ref="qImportInput" accept=".json,.csv" style="display:none" @change="handleQImport" />
+<button class="btn btn-gray" @click="triggerQImport">Import JSON</button>
+</div>
+<table v-if="qList.length"><thead><tr><th>ID</th><th>Question</th><th>Type</th><th>Status</th><th>User</th><th>Actions</th></tr></thead>
+<tbody><tr v-for="q in qList" :key="q.id">
+<td>{{q.id}}</td><td>{{(q.question_text||'').substring(0,60)}}...</td>
+<td>{{q.question_type}}</td>
+<td><span :class="'badge '+(q.status==='published'?'badge-pub':'badge-draft')">{{q.status}}</span></td>
+<td>{{q.user_id?'U#'+q.user_id:'system'}}</td>
+<td>
+<button class="btn-sm btn-blue" @click="editQ(q)">Edit</button>
+<button class="btn-sm btn-gray" @click="toggleQStatus(q.id)">{{q.status==='published'?'→Draft':'→Pub'}}</button>
+<button class="btn-sm btn-red" @click="removeQ(q.id)">Del</button>
+</td></tr></tbody></table>
+<div v-else class="empty">No questions.</div>
+<div class="pagination" v-if="qTotal>20">
+<button @click="qPage--;fetchQuestions()" :disabled="qPage<=1">Prev</button>
+<span>Page {{qPage}} / {{Math.ceil(qTotal/20)}}</span>
+<button @click="qPage++;fetchQuestions()" :disabled="qPage*20>=qTotal">Next</button></div>
+</div>
+
+<!-- Users -->
+<div v-if="tab==='users'">
+<div class="form-row">
+<input v-model="uSearch" placeholder="Search username..." @keyup.enter="fetchUsers" />
+<button class="btn btn-blue" @click="fetchUsers">Search</button>
+</div>
+<table v-if="uList.length"><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Quizzes</th><th>Accuracy</th><th>Wrong</th><th>Last Active</th><th>Actions</th></tr></thead>
+<tbody><tr v-for="u in uList" :key="u.id">
+<td>{{u.id}}</td><td>{{u.username}}</td><td>{{u.role}}</td><td>{{u.quiz_count}}</td><td>{{u.accuracy}}%</td><td>{{u.active_wrong}}</td><td>{{(u.last_active||'').substring(0,10)}}</td>
+<td>
+<button class="btn-sm btn-blue" @click="showProfile(u.id)">Profile</button>
+<button class="btn-sm btn-gray" @click="promptResetPassword(u.id)">Reset PW</button>
+<button class="btn-sm btn-red" @click="deleteUser(u.id,u.username)">Del</button>
+</td></tr></tbody></table>
+<div v-else class="empty">No users found.</div>
+<div class="pagination" v-if="uTotal>20">
+<button @click="uPage--;fetchUsers()" :disabled="uPage<=1">Prev</button>
+<span>Page {{uPage}} / {{Math.ceil(uTotal/20)}}</span>
+<button @click="uPage++;fetchUsers()" :disabled="uPage*20>=uTotal">Next</button></div>
+</div>
+</div>
+
+<!-- KP Dialog -->
+<div v-if="showKpDialog" class="dialog-overlay" @click.self="showKpDialog=false"><div class="dialog">
+<h3>{{editingKp?'Edit':'Add'}} Knowledge Point</h3>
+<div class="form-row" style="flex-direction:column">
+<select v-model="kpForm.subject_id"><option value="">Subject</option><option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
+<input v-model="kpForm.title" placeholder="Title" />
+<textarea v-model="kpForm.content" placeholder="Content"></textarea>
+<input v-model="kpForm.tags" placeholder="Tags (comma-separated)" />
+<select v-model="kpForm.parent_id"><option :value="null">No parent</option><option v-for="k in kps" :key="k.id" :value="k.id">{{k.title}}</option></select>
+</div>
+<div class="dialog-actions">
+<button class="btn-sm btn-gray" @click="showKpDialog=false">Cancel</button>
+<button class="btn-sm btn-blue" @click="saveKp">Save</button></div>
+</div></div>
+
+<!-- Question Dialog -->
+<div v-if="showQDialog" class="dialog-overlay" @click.self="showQDialog=false"><div class="dialog">
+<h3>{{editingQ?'Edit':'Add'}} Question</h3>
+<div class="form-row" style="flex-direction:column">
+<textarea v-model="qForm.question_text" placeholder="Question text" @blur="checkDedup"></textarea>
+<div v-if="dupes.length" style="font-size:11px;color:#ca8">Possible duplicates: {{dupes.map(d=>'#'+d.id).join(', ')}}</div>
+<input v-model="qForm.answer" placeholder="Answer" />
+<input v-model="qForm.explanation" placeholder="Explanation" />
+<select v-model="qForm.question_type"><option value="short_answer">Short Answer</option><option value="multiple_choice">Multiple Choice</option><option value="essay">Essay</option></select>
+<input v-model="qForm.options" placeholder='Options JSON (e.g. {"A":"...","B":"..."})' v-if="qForm.question_type==='multiple_choice'" />
+<select v-model="qForm.difficulty"><option :value="1">1</option><option :value="2">2</option><option :value="3">3</option><option :value="4">4</option><option :value="5">5</option></select>
+<select v-model="qForm.knowledge_point_id"><option :value="null">No KP</option><option v-for="k in allKps" :key="k.id" :value="k.id">{{k.title}}</option></select>
+<select v-model="qForm.status"><option value="draft">Draft</option><option value="published">Published</option></select>
+</div>
+<div class="dialog-actions">
+<button class="btn-sm btn-gray" @click="showQDialog=false">Cancel</button>
+<button class="btn-sm btn-blue" @click="saveQ">Save</button></div>
+</div></div>
+
+<!-- User Profile Dialog -->
+<div v-if="showProfileDialog" class="dialog-overlay" @click.self="showProfileDialog=false"><div class="dialog">
+<h3>User Profile</h3>
+<div class="profile-grid" v-if="profile">
+<div class="profile-card"><div class="num" style="color:#0a84ff">{{profile.total_answers}}</div><div class="lbl">Total Answers</div></div>
+<div class="profile-card"><div class="num" style="color:#4a9a4a">{{profile.accuracy}}%</div><div class="lbl">Accuracy</div></div>
+<div class="profile-card"><div class="num" style="color:#ca8">{{profile.active_days}}</div><div class="lbl">Active Days</div></div>
+<div class="profile-card"><div class="num" style="color:#e05555">{{profile.weak_kp_count}}</div><div class="lbl">Weak KPs</div></div>
+<div class="profile-card"><div class="num">{{profile.total_quizzes}}</div><div class="lbl">Quizzes</div></div>
+<div class="profile-card"><div class="num">{{profile.active_plans}}</div><div class="lbl">Study Plans</div></div>
+<div class="profile-card"><div class="num">{{profile.avg_mastery}}</div><div class="lbl">Avg Mastery</div></div>
+<div class="profile-card"><div class="num">{{profile.correct_answers}}</div><div class="lbl">Correct Answers</div></div>
+</div>
+<div class="dialog-actions"><button class="btn-sm btn-gray" @click="showProfileDialog=false">Close</button></div>
+</div></div>
+</div>
+
+<script>
+const {ref,onMounted}=Vue;
+Vue.createApp({setup(){
+const tab=ref('subjects'),user=ref(null);
+// Subjects
+const subjects=ref([]),subjName=ref(''),subjDesc=ref('');
+// KPs
+const kps=ref([]),kpSubjectId=ref(''),allKps=ref([]),showKpDialog=ref(false),editingKp=ref(null);
+const kpForm=ref({subject_id:'',title:'',content:'',tags:'',parent_id:null});
+// Questions
+const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]);
+const showQDialog=ref(false),editingQ=ref(null),qImportInput=ref(null),dupes=ref([]);
+const qForm=ref({question_text:'',answer:'',explanation:'',question_type:'short_answer',options:'',difficulty:1,knowledge_point_id:null,status:'draft'});
+// Users
+const uList=ref([]),uTotal=ref(0),uPage=ref(1),uSearch=ref('');
+const showProfileDialog=ref(false),profile=ref(null);
+
+async function api(method,path,body){
+const opts={method,headers:{'Content-Type':'application/json'}};
+if(body)opts.body=JSON.stringify(body);
+const r=await fetch(path,opts);
+if(r.status===401){window.location.href='/login.html';return{}}
+return r.json();
+}
+const apiGet=p=>api('GET',p),apiPost=(p,b)=>api('POST',p,b),apiPut=(p,b)=>api('PUT',p,b),apiDelete=p=>api('DELETE',p);
+
+async function checkAuth(){const d=await apiGet('/api/auth/me');if(d.error||d.role!=='admin'){window.location.href='/login.html';return}user.value=d}
+async function logout(){await apiPost('/api/auth/logout',{});window.location.href='/login.html'}
+
+// Subjects
+async function fetchSubjects(){subjects.value=await apiGet('/api/admin/subjects')||[]}
+async function createSubject(){if(!subjName.value)return;await apiPost('/api/admin/subjects',{name:subjName.value,description:subjDesc.value||null});subjName.value='';subjDesc.value='';fetchSubjects()}
+async function removeSubject(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/subjects/'+id);fetchSubjects()}
+
+// KPs
+async function fetchKPs(){const sid=kpSubjectId.value;const url=sid?'/api/admin/knowledge-points?subject_id='+sid:'/api/admin/knowledge-points';kps.value=await apiGet(url)||[]}
+async function loadAllKps(){allKps.value=await apiGet('/api/admin/knowledge-points')||[]}
+async function saveKp(){const f=kpForm.value;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content,tags:f.tags||null,parent_id:f.parent_id||null};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
+function editKp(k){editingKp.value=k;kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content,tags:k.tags||'',parent_id:k.parent_id||null};showKpDialog.value=true}
+async function removeKp(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/knowledge-points/'+id);fetchKPs();loadAllKps()}
+function getKpParentName(pid){if(!pid)return null;const k=kps.value.find(x=>x.id===pid);return k?k.title:null}
+
+// Questions
+async function fetchQuestions(){
+const sid=qSubjectId.value;if(sid){const kps=await apiGet('/api/admin/knowledge-points?subject_id='+sid);qFilterKps.value=kps||[]}else{qFilterKps.value=[]}
+const params=new URLSearchParams();params.set('page',qPage.value);params.set('limit','20');
+if(sid)params.set('subject_id',sid);if(qKpId.value&&!sid)params.set('kp_id',qKpId.value);if(qStatus.value)params.set('status',qStatus.value);
+const d=await apiGet('/api/admin/questions?'+params.toString());qList.value=d.questions||[];qTotal.value=d.total||0}
+function editQ(q){editingQ.value=q;qForm.value={question_text:q.question_text,answer:q.answer,explanation:q.explanation||'',question_type:q.question_type,options:q.options||'',difficulty:q.difficulty||1,knowledge_point_id:q.knowledge_point_id||null,status:q.status||'draft'};showQDialog.value=true}
+async function saveQ(){const f=qForm.value;const body={...f,difficulty:Number(f.difficulty)};if(editingQ.value){await apiPut('/api/admin/questions/'+editingQ.value.id,body)}else{await apiPost('/api/admin/questions',body)};showQDialog.value=false;fetchQuestions()}
+async function removeQ(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/questions/'+id);fetchQuestions()}
+async function toggleQStatus(id){await apiPost('/api/admin/questions/'+id+'/toggle-status',{});fetchQuestions()}
+function triggerQImport(){qImportInput.value?.click()}
+async function handleQImport(e){const f=e.target.files?.[0];if(!f)return;const text=await f.text();let items;try{items=JSON.parse(text)}catch{items=text.split('\n').filter(l=>l.trim()).map(l=>{const p=l.split(',');return{question_text:p[0],answer:p[1],question_type:p[2]||'short_answer'}})}
+const d=await apiPost('/api/admin/questions/import',items);alert('Imported '+d.imported+' question(s)');fetchQuestions();e.target.value=''}
+async function checkDedup(){const t=qForm.value.question_text;if(t.length<10){dupes.value=[];return};dupes.value=await apiGet('/api/admin/questions/dedup?text='+encodeURIComponent(t.substring(0,80)))||[]}
+
+// Users
+async function fetchUsers(){const params=new URLSearchParams();params.set('page',uPage.value);params.set('limit','20');if(uSearch.value)params.set('search',uSearch.value);const d=await apiGet('/api/admin/users?'+params.toString());uList.value=d.users||[];uTotal.value=d.total||0}
+async function showProfile(id){profile.value=await apiGet('/api/admin/users/'+id+'/profile');showProfileDialog.value=true}
+async function promptResetPassword(id){const pw=prompt('New password (min 4 chars):');if(!pw||pw.length<4){alert('Min 4 chars');return};await apiPost('/api/admin/users/'+id+'/reset-password',{password:pw});alert('Password reset')}
+async function deleteUser(id,username){if(!confirm('Delete user "'+username+'" and ALL their data? This cannot be undone.'))return;await apiDelete('/api/admin/users/'+id);fetchUsers()}
+
+onMounted(async()=>{await checkAuth();await fetchSubjects();await loadAllKps();await fetchQuestions();await fetchUsers()});
+return{tab,user,logout,window,
+subjects,subjName,subjDesc,createSubject,removeSubject,
+kps,kpSubjectId,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,removeKp,fetchKPs,getKpParentName,
+qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,qImportInput,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,triggerQImport,handleQImport,fetchQuestions,checkDedup,
+uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers};
+}}).mount('#app');</script>
+</body>
+</html>

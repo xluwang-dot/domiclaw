@@ -63,7 +63,7 @@ export interface NewMessage {
  * Channel 频道接口
  *
  * 消息频道需要实现的接口
- * 用于连接不同的消息平台（TUI/QQ/Telegram等）
+ * 用于连接不同的消息平台（Web/Telegram等）
  */
 export interface Channel {
   /** 频道名称 */
@@ -128,6 +128,7 @@ export interface ToolDefinition {
 export interface ToolContext {
   groupFolder: string;
   chatJid: string;
+  userId: number;
 }
 
 export interface RegisteredTool {

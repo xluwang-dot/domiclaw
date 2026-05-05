@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domiclaw — Login</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1e1e1e; color: #eee;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh;
+}
+.container {
+  background: #2a2a2a; border: 1px solid #444; border-radius: 12px;
+  padding: 32px; width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+h1 { font-size: 22px; margin-bottom: 8px; text-align: center; }
+.subtitle { color: #888; font-size: 13px; text-align: center; margin-bottom: 24px; }
+.tabs { display: flex; gap: 0; margin-bottom: 20px; }
+.tabs button {
+  flex: 1; padding: 10px; border: 1px solid #555;
+  background: #333; color: #aaa; cursor: pointer; font-size: 14px;
+}
+.tabs button:first-child { border-radius: 6px 0 0 6px; }
+.tabs button:last-child { border-radius: 0 6px 6px 0; }
+.tabs button.active { background: #0a84ff; color: #fff; border-color: #0a84ff; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; }
+.form-group input {
+  width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid #555;
+  background: #1e1e1e; color: #eee; font-size: 14px; outline: none;
+}
+.form-group input:focus { border-color: #0a84ff; }
+.btn {
+  width: 100%; padding: 10px; border-radius: 6px; border: none;
+  background: #0a84ff; color: #fff; cursor: pointer; font-size: 14px; margin-top: 8px;
+}
+.btn:hover { background: #0066cc; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.error { color: #e55; font-size: 13px; text-align: center; margin-top: 12px; }
+.success { color: #5a5; font-size: 13px; text-align: center; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Domiclaw</h1>
+  <p class="subtitle">Your AI Study Assistant</p>
+
+  <div class="tabs">
+    <button :class="{ active: tab === 'login' }" @click="switchTab('login')">Login</button>
+    <button :class="{ active: tab === 'register' }" @click="switchTab('register')">Register</button>
+  </div>
+
+  <div v-if="tab === 'login'">
+    <div class="form-group">
+      <label>Username</label>
+      <input v-model="loginUsername" @keyup.enter="doLogin" placeholder="Your username" />
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input v-model="loginPassword" type="password" @keyup.enter="doLogin" placeholder="Your password" />
+    </div>
+    <button class="btn" @click="doLogin" :disabled="loading">Login</button>
+  </div>
+
+  <div v-if="tab === 'register'">
+    <div class="form-group">
+      <label>Username</label>
+      <input v-model="regUsername" @keyup.enter="doRegister" placeholder="Choose a username" />
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input v-model="regPassword" type="password" @keyup.enter="doRegister" placeholder="At least 4 characters" />
+    </div>
+    <button class="btn" @click="doRegister" :disabled="loading">Register</button>
+  </div>
+
+  <div v-if="error" class="error">{{ error }}</div>
+  <div v-if="success" class="success">{{ success }}</div>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script>
+const { ref, onMounted } = Vue;
+
+Vue.createApp({
+  setup() {
+    const tab = ref('login');
+    const loading = ref(false);
+    const error = ref('');
+    const success = ref('');
+    const loginUsername = ref('');
+    const loginPassword = ref('');
+    const regUsername = ref('');
+    const regPassword = ref('');
+
+    async function apiPost(path, body) {
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return r.json();
+    }
+
+    function switchTab(t) {
+      tab.value = t;
+      error.value = '';
+      success.value = '';
+    }
+
+    function redirect(role) {
+      if (role === 'admin') {
+        window.location.href = '/admin.html';
+      } else {
+        window.location.href = '/app.html';
+      }
+    }
+
+    async function doLogin() {
+      error.value = '';
+      success.value = '';
+      if (!loginUsername.value || !loginPassword.value) {
+        error.value = 'Please enter username and password.';
+        return;
+      }
+      loading.value = true;
+      try {
+        const data = await apiPost('/api/auth/login', {
+          username: loginUsername.value,
+          password: loginPassword.value,
+        });
+        if (data.error) {
+          error.value = data.error;
+        } else {
+          success.value = 'Login successful! Redirecting...';
+          setTimeout(() => redirect(data.role), 500);
+        }
+      } catch (e) {
+        error.value = 'Network error: ' + e.message;
+      }
+      loading.value = false;
+    }
+
+    async function doRegister() {
+      error.value = '';
+      success.value = '';
+      if (!regUsername.value || !regPassword.value) {
+        error.value = 'Please enter username and password.';
+        return;
+      }
+      if (regPassword.value.length < 4) {
+        error.value = 'Password must be at least 4 characters.';
+        return;
+      }
+      loading.value = true;
+      try {
+        const data = await apiPost('/api/auth/register', {
+          username: regUsername.value,
+          password: regPassword.value,
+        });
+        if (data.error) {
+          error.value = data.error;
+        } else {
+          success.value = 'Account created! Redirecting...';
+          setTimeout(() => redirect(data.role), 500);
+        }
+      } catch (e) {
+        error.value = 'Network error: ' + e.message;
+      }
+      loading.value = false;
+    }
+
+    // Check if already logged in
+    onMounted(async () => {
+      try {
+        const r = await fetch('/api/auth/me');
+        const data = await r.json();
+        if (data.id) {
+          redirect(data.role);
+        }
+      } catch { /* not logged in, stay */ }
+    });
+
+    return {
+      tab, loading, error, success,
+      loginUsername, loginPassword, regUsername, regPassword,
+      switchTab, doLogin, doRegister,
+    };
+  }
+}).mount('.container');
+</script>
+</body>
+</html>

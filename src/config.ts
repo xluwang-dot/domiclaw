@@ -8,6 +8,7 @@
  * 2. .env 文件
  * 3. 默认值
  */
+import crypto from "node:crypto";
 import path from "path";
 
 import { readEnvFile } from "./env.js";
@@ -27,6 +28,9 @@ const envConfig = readEnvFile([
   "MODEL_NAME_FALLBACK", // 备用模型
   "MODEL_BASE_URL_FALLBACK", // 备用 API 地址
   "MODEL_API_KEY_FALLBACK", // 备用 API 密钥
+  "ADMIN_USERNAME", // 管理员用户名
+  "ADMIN_PASSWORD", // 管理员密码（必填）
+  "SESSION_SECRET", // 会话加密密钥
 ]);
 
 // ============== 核心配置 ==============
@@ -190,6 +194,17 @@ export const MODEL_BASE_URL_FALLBACK =
   process.env.MODEL_BASE_URL_FALLBACK || "";
 export const MODEL_API_KEY_FALLBACK =
   process.env.MODEL_API_KEY_FALLBACK || "";
+
+export const ADMIN_USERNAME =
+  process.env.ADMIN_USERNAME || envConfig.ADMIN_USERNAME || "admin";
+
+export const ADMIN_PASSWORD =
+  process.env.ADMIN_PASSWORD || envConfig.ADMIN_PASSWORD || "";
+
+export const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  envConfig.SESSION_SECRET ||
+  crypto.randomBytes(32).toString("hex");
 
 // ============== 触发词配置 ==============
 

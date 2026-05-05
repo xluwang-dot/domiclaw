@@ -1,83 +1,56 @@
-/**
- * Domiclaw 数据库模块
- *
- * 使用 SQLite 存储所有数据:
- * - 聊天记录
- * - 消息历史
- * - 群组配置
- * - 路由状态
- *
- * 表格:
- * - chats: 聊天/群组元数据
- * - messages: 消息历史
- * - registered_groups: 已注册的群组
- * - router_state: 路由状态（如游标）
- */
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
 import { STORE_DIR } from "./config.js";
 import { logger } from "./logger.js";
+import { initAuthDb } from "./auth.js";
 import { NewMessage, RegisteredGroup } from "./types.js";
 
-/**
- * SQLite 数据库实例
- */
 let db: Database.Database;
 
-/**
- * 创建数据库表格
- *
- * @param database 数据库实例
- */
 function createSchema(database: Database.Database): void {
-  // 创建所有必要的表格
   database.exec(`
-    -- 聊天/群组元数据表
     CREATE TABLE IF NOT EXISTS chats (
-      jid TEXT PRIMARY KEY,           -- 聊天 ID（唯一标识）
-      name TEXT,                 -- 聊天名称
-      last_message_time TEXT,     -- 最后消息时间
-      channel TEXT,             -- 频道类型（tui/qq/telegram）
-      is_group INTEGER DEFAULT 0  -- 是否为群组
+      jid TEXT PRIMARY KEY,
+      name TEXT,
+      last_message_time TEXT,
+      channel TEXT,
+      is_group INTEGER DEFAULT 0
     );
 
-    -- 消息历史表
     CREATE TABLE IF NOT EXISTS messages (
-      id TEXT,                    -- 消息 ID
-      chat_jid TEXT,            -- 聊天 ID（外键）
-      sender TEXT,             -- 发送者 ID
-      sender_name TEXT,         -- 发送者名称
-      content TEXT,            -- 消息内容
-      timestamp TEXT,          -- 时间戳
-      is_from_me INTEGER,       -- 是否为机器人发送
-      is_bot_message INTEGER DEFAULT 0,  -- 是否为机器人回复
+      id TEXT,
+      chat_jid TEXT,
+      user_id INTEGER NOT NULL,
+      sender TEXT,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT,
+      is_from_me INTEGER,
+      is_bot_message INTEGER DEFAULT 0,
       PRIMARY KEY (id, chat_jid),
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
-    -- 消息时间戳索引（加速查询）
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
 
-    -- 已注册的群组表
     CREATE TABLE IF NOT EXISTS registered_groups (
-      jid TEXT PRIMARY KEY,          -- 聊天 ID
-      name TEXT NOT NULL,            -- 群组名称
-      folder TEXT NOT NULL UNIQUE,    -- 群组文件夹（唯一）
-      trigger_pattern TEXT NOT NULL,  -- 触发词
-      added_at TEXT NOT NULL,         -- 添加时间
-      container_config TEXT,         -- 容器配置（预留）
-      requires_trigger INTEGER DEFAULT 1,  -- 是否需要触发词
-      is_main INTEGER DEFAULT 0       -- 是否为主群
+      jid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      folder TEXT NOT NULL UNIQUE,
+      trigger_pattern TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      container_config TEXT,
+      requires_trigger INTEGER DEFAULT 1,
+      is_main INTEGER DEFAULT 0
     );
 
-    -- 路由状态表（存储游标等）
     CREATE TABLE IF NOT EXISTS router_state (
-      key TEXT PRIMARY KEY,    -- 状态键
-      value TEXT NOT NULL  -- 状态值
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
 
-    -- 学科表
     CREATE TABLE IF NOT EXISTS subjects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -85,7 +58,6 @@ function createSchema(database: Database.Database): void {
       created_at TEXT NOT NULL
     );
 
-    -- 知识点表
     CREATE TABLE IF NOT EXISTS knowledge_points (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL,
@@ -96,7 +68,6 @@ function createSchema(database: Database.Database): void {
       FOREIGN KEY (subject_id) REFERENCES subjects(id)
     );
 
-    -- 试卷表
     CREATE TABLE IF NOT EXISTS exam_papers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL,
@@ -108,7 +79,6 @@ function createSchema(database: Database.Database): void {
       FOREIGN KEY (subject_id) REFERENCES subjects(id)
     );
 
-    -- 题目表
     CREATE TABLE IF NOT EXISTS questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       exam_paper_id INTEGER,
@@ -119,24 +89,24 @@ function createSchema(database: Database.Database): void {
       difficulty INTEGER DEFAULT 1,
       question_type TEXT NOT NULL DEFAULT 'short_answer',
       options TEXT,
+      status TEXT NOT NULL DEFAULT 'published',
       created_at TEXT NOT NULL,
       FOREIGN KEY (exam_paper_id) REFERENCES exam_papers(id),
       FOREIGN KEY (knowledge_point_id) REFERENCES knowledge_points(id)
     );
 
-    -- 测验会话表
     CREATE TABLE IF NOT EXISTS quiz_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL,
-      chat_jid TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
       started_at TEXT NOT NULL,
       finished_at TEXT,
       total_questions INTEGER DEFAULT 0,
       correct_count INTEGER DEFAULT 0,
       FOREIGN KEY (subject_id) REFERENCES subjects(id)
     );
+    CREATE INDEX IF NOT EXISTS idx_qs_user ON quiz_sessions(user_id);
 
-    -- 测验作答记录表
     CREATE TABLE IF NOT EXISTS quiz_answers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       quiz_session_id INTEGER NOT NULL,
@@ -148,11 +118,10 @@ function createSchema(database: Database.Database): void {
       FOREIGN KEY (question_id) REFERENCES questions(id)
     );
 
-    -- 错题追踪表（间隔重复状态）
     CREATE TABLE IF NOT EXISTS wrong_questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question_id INTEGER NOT NULL,
-      chat_jid TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
       wrong_count INTEGER DEFAULT 1,
       consecutive_correct INTEGER DEFAULT 0,
       last_reviewed_at TEXT NOT NULL,
@@ -162,12 +131,11 @@ function createSchema(database: Database.Database): void {
       FOREIGN KEY (question_id) REFERENCES questions(id)
     );
     CREATE INDEX IF NOT EXISTS idx_wq_next_review ON wrong_questions(next_review_at);
-    CREATE INDEX IF NOT EXISTS idx_wq_chat_jid ON wrong_questions(chat_jid);
+    CREATE INDEX IF NOT EXISTS idx_wq_user ON wrong_questions(user_id);
 
-    -- 学习计划表
     CREATE TABLE IF NOT EXISTS study_plans (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      chat_jid TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
       subject_id INTEGER,
       title TEXT NOT NULL,
       plan_data TEXT NOT NULL,
@@ -176,12 +144,11 @@ function createSchema(database: Database.Database): void {
       created_at TEXT NOT NULL,
       FOREIGN KEY (subject_id) REFERENCES subjects(id)
     );
-    CREATE INDEX IF NOT EXISTS idx_sp_chat_jid ON study_plans(chat_jid);
+    CREATE INDEX IF NOT EXISTS idx_sp_user ON study_plans(user_id);
 
-    -- 定时任务表
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
-      group_folder TEXT NOT NULL,
+      user_id TEXT NOT NULL,
       chat_jid TEXT NOT NULL,
       prompt TEXT NOT NULL,
       schedule_type TEXT NOT NULL,
@@ -193,365 +160,303 @@ function createSchema(database: Database.Database): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_st_next_run ON scheduled_tasks(next_run);
-    CREATE INDEX IF NOT EXISTS idx_st_chat_jid ON scheduled_tasks(chat_jid);
+    CREATE INDEX IF NOT EXISTS idx_st_user ON scheduled_tasks(user_id);
 
-    -- 会话上下文表
     CREATE TABLE IF NOT EXISTS session_context (
-      chat_jid TEXT PRIMARY KEY,
+      user_id INTEGER PRIMARY KEY,
       topic TEXT,
       weak_areas TEXT,
       summary TEXT,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_kp_mastery (
+      user_id INTEGER NOT NULL,
+      kp_id INTEGER NOT NULL,
+      mastery REAL NOT NULL DEFAULT 0.5,
+      last_updated TEXT NOT NULL,
+      PRIMARY KEY (user_id, kp_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ukm_user ON user_kp_mastery(user_id);
+    CREATE INDEX IF NOT EXISTS idx_ukm_kp ON user_kp_mastery(kp_id);
+
+    CREATE TABLE IF NOT EXISTS user_kp_weakness (
+      user_id INTEGER NOT NULL,
+      kp_id INTEGER NOT NULL,
+      total_wrong INTEGER DEFAULT 1,
+      representative_question_id INTEGER,
+      last_wrong_time TEXT,
+      PRIMARY KEY (user_id, kp_id)
+    );
   `);
 
-    // Seed common subjects on first run
-    const count = database.prepare(
-      "SELECT COUNT(*) as cnt FROM subjects",
-    ).get() as { cnt: number };
-    if (count.cnt === 0) {
-      const now = new Date().toISOString();
-      const subjects = [
-        "Mathematics",
-        "Physics",
-        "Chemistry",
-        "Biology",
-        "English",
-        "Chinese",
-        "History",
-        "Geography",
-        "Politics",
-      ];
-      const insert = database.prepare(
-        "INSERT INTO subjects (name, description, created_at) VALUES (?, ?, ?)",
-      );
-      for (const name of subjects) {
-        insert.run(name, null, now);
-      }
+  // Seed common subjects on first run
+  const count = database.prepare(
+    "SELECT COUNT(*) as cnt FROM subjects",
+  ).get() as { cnt: number };
+  if (count.cnt === 0) {
+    const now = new Date().toISOString();
+    const subjects = [
+      "Mathematics", "Physics", "Chemistry", "Biology",
+      "English", "Chinese", "History", "Geography", "Politics",
+    ];
+    const insert = database.prepare(
+      "INSERT INTO subjects (name, description, created_at) VALUES (?, ?, ?)",
+    );
+    for (const name of subjects) {
+      insert.run(name, null, now);
     }
+  }
 }
 
-/**
- * 初始化数据库
- *
- * 首次运行时创建数据库文件和表格
- */
-export function initDatabase(): void {
-  // 构建数据库路径
-  const dbPath = path.join(STORE_DIR, "messages.db");
+// Migration: drop old tables that need user_id (safe in dev phase)
+function migrateSchema(database: Database.Database): void {
+  // Enable foreign keys so DROPs work regardless of order
+  database.pragma("foreign_keys = OFF");
+  database.exec(`
+    DROP TABLE IF EXISTS messages;
+    DROP TABLE IF EXISTS quiz_answers;
+    DROP TABLE IF EXISTS quiz_sessions;
+    DROP TABLE IF EXISTS wrong_questions;
+    DROP TABLE IF EXISTS study_plans;
+    DROP TABLE IF EXISTS scheduled_tasks;
+    DROP TABLE IF EXISTS session_context;
+  `);
+  database.pragma("foreign_keys = ON");
+}
 
-  // 确保目录存在
+export function initDatabase(): void {
+  const dbPath = path.join(STORE_DIR, "messages.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-  // 打开/创建数据库
   db = new Database(dbPath);
 
-  // 创建表格
+  // Drop old tables that need user_id migration
+  migrateSchema(db);
+
+  // Create all tables (including those dropped for migration)
   createSchema(db);
+
+  // Incremental migrations: add columns to existing tables (idempotent via try/catch)
+  for (const stmt of [
+    `ALTER TABLE questions ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+    `ALTER TABLE quiz_answers ADD COLUMN weak_kp_ids TEXT`,
+    `ALTER TABLE wrong_questions ADD COLUMN root_kp_id INTEGER`,
+    `ALTER TABLE knowledge_points ADD COLUMN parent_id INTEGER REFERENCES knowledge_points(id)`,
+  ]) {
+    try { db.exec(stmt); } catch { /* column already exists — skip */ }
+  }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_questions_user ON questions(user_id)"); } catch { /* ok */ }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id)"); } catch { /* ok */ }
+
+  // Init auth module
+  initAuthDb(db);
 }
 
-/**
- * 存储消息到数据库
- *
- * @param msg 消息对象
- */
-export function storeMessage(msg: NewMessage): void {
-  // Ensure chat row exists first (FK constraint on messages.chat_jid)
+// ============== Message queries ==============
+
+export function storeMessage(msg: NewMessage, userId: number): void {
   db.prepare(
-    `
-    INSERT OR REPLACE INTO chats (jid, last_message_time)
-    VALUES (?, ?)
-  `,
+    `INSERT OR REPLACE INTO chats (jid, last_message_time) VALUES (?, ?)`,
   ).run(msg.chat_jid, msg.timestamp);
 
   db.prepare(
-    `
-    INSERT OR REPLACE INTO messages
-    (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `,
+    `INSERT OR REPLACE INTO messages
+     (id, chat_jid, user_id, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    msg.id,
-    msg.chat_jid,
-    msg.sender,
-    msg.sender_name,
-    msg.content,
-    msg.timestamp,
-    msg.is_from_me ? 1 : 0,
-    msg.is_bot_message ? 1 : 0,
+    msg.id, msg.chat_jid, userId, msg.sender, msg.sender_name,
+    msg.content, msg.timestamp,
+    msg.is_from_me ? 1 : 0, msg.is_bot_message ? 1 : 0,
   );
 }
 
-/**
- * 存储聊天元数据
- *
- * @param chatJid 聊天 ID
- * @param timestamp 最后消息时间
- * @param name 聊天名称（可选）
- * @param channel 频道类型（可选）
- * @param isGroup 是否为群组（可选）
- */
 export function storeChatMetadata(
-  chatJid: string,
-  timestamp: string,
-  name?: string,
-  channel?: string,
-  isGroup?: boolean,
+  chatJid: string, timestamp: string,
+  name?: string, channel?: string, isGroup?: boolean,
 ): void {
-  // 解析频道和群组标志
   const ch = channel ?? null;
   const group = isGroup === undefined ? null : isGroup ? 1 : 0;
-
   if (name) {
-    // 更新名称，保留较新的时间戳
     db.prepare(
-      `
-      UPDATE chats 
-      SET name = ?, last_message_time = COALESCE(
-        (SELECT last_message_time FROM chats WHERE jid = ?), ?
-      )
-      WHERE jid = ? OR jid IS NULL
-    `,
+      `UPDATE chats SET name = ?, last_message_time = COALESCE(
+        (SELECT last_message_time FROM chats WHERE jid = ?), ?)
+       WHERE jid = ? OR jid IS NULL`,
     ).run(name, chatJid, timestamp, chatJid);
   }
 }
 
-/**
- * 获取所有聊天列表
- *
- * @returns 聊天数组
- */
 export function getAllChats(): { jid: string; name?: string }[] {
   return db.prepare("SELECT jid, name FROM chats").all() as {
-    jid: string;
-    name?: string;
+    jid: string; name?: string;
   }[];
 }
 
-/**
- * 获取指定时间之后的消息
- *
- * @param chatJid 聊天 ID
- * @param afterTimestamp 起始时间戳（空字符串表示从头开始）
- * @param assistantName AI 助手名称（用于过滤自己的消息）
- * @param limit 最大返回数量
- * @returns 消息数组
- */
 export function getMessagesSince(
-  chatJid: string,
-  afterTimestamp: string,
-  assistantName: string,
-  limit: number,
+  userId: number, afterTimestamp: string,
+  assistantName: string, limit: number,
 ): NewMessage[] {
-  // 构建查询
   let query = `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
-    FROM messages
-    WHERE chat_jid = ? AND timestamp > ?
+    FROM messages WHERE user_id = ? AND timestamp > ?
   `;
-
-  const params: (string | number)[] = [chatJid, afterTimestamp];
-
-  // 过滤参数
+  const params: (number | string)[] = [userId, afterTimestamp];
   query += ` ORDER BY timestamp ASC LIMIT ?`;
   params.push(limit);
-
   return db.prepare(query).all(...params) as NewMessage[];
 }
 
-/**
- * 获取所有已注册的群组
- *
- * @returns 群组映射（jid -> RegisteredGroup）
- */
+// ============== Registered groups ==============
+
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
-  const rows = db
-    .prepare(
-      `
+  const rows = db.prepare(`
     SELECT jid, name, folder, trigger_pattern, added_at, requires_trigger, is_main
     FROM registered_groups
-  `,
-    )
-    .all() as {
-    jid: string;
-    name: string;
-    folder: string;
-    trigger_pattern: string;
-    added_at: string;
-    requires_trigger: number;
-    is_main: number;
+  `).all() as {
+    jid: string; name: string; folder: string; trigger_pattern: string;
+    added_at: string; requires_trigger: number; is_main: number;
   }[];
-
-  // 转换为映射
   const groups: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
     groups[row.jid] = {
-      name: row.name,
-      folder: row.folder,
-      trigger: row.trigger_pattern,
-      added_at: row.added_at,
-      requiresTrigger: row.requires_trigger === 1,
-      isMain: row.is_main === 1,
+      name: row.name, folder: row.folder,
+      trigger: row.trigger_pattern, added_at: row.added_at,
+      requiresTrigger: row.requires_trigger === 1, isMain: row.is_main === 1,
     };
   }
   return groups;
 }
 
-/**
- * 设置群组注册信息
- *
- * @param jid 聊天 ID
- * @param group 群组配置
- */
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
-    `
-    INSERT OR REPLACE INTO registered_groups 
-    (jid, name, folder, trigger_pattern, added_at, requires_trigger, is_main)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `,
-  ).run(
-    jid,
-    group.name,
-    group.folder,
-    group.trigger,
-    group.added_at,
-    group.requiresTrigger !== false ? 1 : 0,
-    group.isMain ? 1 : 0,
-  );
+    `INSERT OR REPLACE INTO registered_groups
+     (jid, name, folder, trigger_pattern, added_at, requires_trigger, is_main)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(jid, group.name, group.folder, group.trigger, group.added_at,
+    group.requiresTrigger !== false ? 1 : 0, group.isMain ? 1 : 0);
 }
 
-/**
- * 获取路由状态
- *
- * @param key 状态键
- * @returns 状态值（不存在返回 undefined）
- */
+// ============== Router state ==============
+
 export function getRouterState(key: string): string | undefined {
-  const row = db
-    .prepare("SELECT value FROM router_state WHERE key = ?")
-    .get(key) as { value: string } | undefined;
+  const row = db.prepare("SELECT value FROM router_state WHERE key = ?").get(key) as
+    { value: string } | undefined;
   return row?.value;
 }
 
-/**
- * 设置路由状态
- *
- * @param key 状态键
- * @param value 状态值
- */
 export function setRouterState(key: string, value: string): void {
-  db.prepare(
-    `
-    INSERT OR REPLACE INTO router_state (key, value)
-    VALUES (?, ?)
-  `,
-  ).run(key, value);
+  db.prepare("INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)").run(key, value);
 }
 
 // ============== Subject queries ==============
 
 export function getAllSubjects(): { id: number; name: string; description: string | null }[] {
   return db.prepare("SELECT id, name, description FROM subjects ORDER BY name").all() as {
-    id: number;
-    name: string;
-    description: string | null;
+    id: number; name: string; description: string | null;
   }[];
 }
 
 export function getSubjectByName(name: string): { id: number; name: string } | undefined {
   return db.prepare("SELECT id, name FROM subjects WHERE name = ?").get(name) as
-    | { id: number; name: string }
-    | undefined;
+    { id: number; name: string } | undefined;
+}
+
+export function addSubject(name: string, description: string | null): number {
+  const result = db.prepare(
+    "INSERT INTO subjects (name, description, created_at) VALUES (?, ?, ?)",
+  ).run(name, description, new Date().toISOString());
+  return result.lastInsertRowid as number;
+}
+
+export function updateSubject(id: number, name: string, description: string | null): boolean {
+  const result = db.prepare(
+    "UPDATE subjects SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?",
+  ).run(name, description, id);
+  return result.changes > 0;
+}
+
+export function deleteSubject(id: number): boolean {
+  const result = db.prepare("DELETE FROM subjects WHERE id = ?").run(id);
+  return result.changes > 0;
 }
 
 // ============== Knowledge point queries ==============
 
 export function addKnowledgePoint(
-  subjectId: number,
-  title: string,
-  content: string,
-  tags?: string,
+  subjectId: number, title: string, content: string, tags?: string,
 ): number {
   const result = db.prepare(
-    `INSERT INTO knowledge_points (subject_id, title, content, tags, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO knowledge_points (subject_id, title, content, tags, created_at) VALUES (?, ?, ?, ?, ?)`,
   ).run(subjectId, title, content, tags || null, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
 export function searchKnowledgePoints(query: string, subjectId?: number): {
-  id: number;
-  subject_id: number;
-  title: string;
-  content: string;
-  tags: string | null;
+  id: number; subject_id: number; title: string; content: string; tags: string | null;
 }[] {
   const like = `%${query}%`;
   if (subjectId) {
     return db.prepare(
-      `SELECT id, subject_id, title, content, tags
-       FROM knowledge_points
-       WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?)
-       AND subject_id = ?
+      `SELECT id, subject_id, title, content, tags FROM knowledge_points
+       WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?) AND subject_id = ?
        ORDER BY title LIMIT 20`,
     ).all(like, like, like, subjectId) as {
-      id: number;
-      subject_id: number;
-      title: string;
-      content: string;
-      tags: string | null;
+      id: number; subject_id: number; title: string; content: string; tags: string | null;
     }[];
   }
   return db.prepare(
-    `SELECT id, subject_id, title, content, tags
-     FROM knowledge_points
+    `SELECT id, subject_id, title, content, tags FROM knowledge_points
      WHERE title LIKE ? OR content LIKE ? OR tags LIKE ?
      ORDER BY title LIMIT 20`,
   ).all(like, like, like) as {
-    id: number;
-    subject_id: number;
-    title: string;
-    content: string;
-    tags: string | null;
+    id: number; subject_id: number; title: string; content: string; tags: string | null;
   }[];
 }
 
 export function getKnowledgePointById(id: number): {
-  id: number;
-  title: string;
-  content: string;
-  tags: string | null;
+  id: number; title: string; content: string; tags: string | null;
 } | undefined {
   return db.prepare("SELECT id, title, content, tags FROM knowledge_points WHERE id = ?").get(id) as
-    | { id: number; title: string; content: string; tags: string | null }
-    | undefined;
+    { id: number; title: string; content: string; tags: string | null } | undefined;
 }
 
 export function getKnowledgePointsBySubject(subjectId: number): {
-  id: number;
-  title: string;
-  content: string;
-  tags: string | null;
+  id: number; title: string; content: string; tags: string | null;
 }[] {
   return db.prepare(
-    `SELECT id, title, content, tags FROM knowledge_points WHERE subject_id = ? ORDER BY title`,
-  ).all(subjectId) as {
-    id: number;
-    title: string;
-    content: string;
-    tags: string | null;
-  }[];
+    "SELECT id, title, content, tags FROM knowledge_points WHERE subject_id = ? ORDER BY title",
+  ).all(subjectId) as { id: number; title: string; content: string; tags: string | null }[];
+}
+
+export function getAllKnowledgePoints(): {
+  id: number; subject_id: number; title: string; content: string; tags: string | null;
+}[] {
+  return db.prepare(
+    "SELECT id, subject_id, title, content, tags FROM knowledge_points ORDER BY subject_id, title",
+  ).all() as { id: number; subject_id: number; title: string; content: string; tags: string | null }[];
+}
+
+export function updateKnowledgePoint(
+  id: number, title?: string, content?: string, tags?: string | null,
+): boolean {
+  const result = db.prepare(
+    `UPDATE knowledge_points
+     SET title = COALESCE(?, title), content = COALESCE(?, content),
+         tags = COALESCE(?, tags) WHERE id = ?`,
+  ).run(title || null, content || null, tags !== undefined ? tags : null, id);
+  return result.changes > 0;
+}
+
+export function deleteKnowledgePoint(id: number): boolean {
+  const result = db.prepare("DELETE FROM knowledge_points WHERE id = ?").run(id);
+  return result.changes > 0;
 }
 
 // ============== Exam paper queries ==============
 
 export function addExamPaper(
-  subjectId: number,
-  title: string,
-  examDate?: string,
-  totalScore?: number,
-  durationMinutes?: number,
+  subjectId: number, title: string, examDate?: string,
+  totalScore?: number, durationMinutes?: number,
 ): number {
   const result = db.prepare(
     `INSERT INTO exam_papers (subject_id, title, total_score, duration_minutes, exam_date, created_at)
@@ -563,29 +468,16 @@ export function addExamPaper(
 // ============== Question queries ==============
 
 export function addQuestion(
-  examPaperId: number | null,
-  knowledgePointId: number | null,
-  questionText: string,
-  answer: string,
-  questionType: string,
-  explanation?: string,
-  difficulty?: number,
-  options?: string,
+  examPaperId: number | null, knowledgePointId: number | null,
+  questionText: string, answer: string, questionType: string,
+  explanation?: string, difficulty?: number, options?: string,
 ): number {
   const result = db.prepare(
-    `INSERT INTO questions (exam_paper_id, knowledge_point_id, question_text, answer, explanation, difficulty, question_type, options, created_at)
+    `INSERT INTO questions (exam_paper_id, knowledge_point_id, question_text, answer, explanation,
+       difficulty, question_type, options, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    examPaperId,
-    knowledgePointId,
-    questionText,
-    answer,
-    explanation || null,
-    difficulty || 1,
-    questionType,
-    options || null,
-    new Date().toISOString(),
-  );
+  ).run(examPaperId, knowledgePointId, questionText, answer, explanation || null,
+    difficulty || 1, questionType, options || null, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
@@ -598,97 +490,446 @@ export interface QuestionRow {
   question_type: string;
   options: string | null;
   knowledge_point_id: number | null;
+  status?: string;
+  exam_paper_id?: number | null;
 }
 
 export function getQuestionsBySubject(subjectId: number, limit = 50): QuestionRow[] {
   return db.prepare(
-    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type, q.options, q.knowledge_point_id
+    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+            q.options, q.knowledge_point_id
      FROM questions q
      LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-     WHERE ep.subject_id = ? OR kp.subject_id = ?
+     WHERE (ep.subject_id = ? OR kp.subject_id = ?) AND q.status = 'published'
      ORDER BY RANDOM() LIMIT ?`,
   ).all(subjectId, subjectId, limit) as QuestionRow[];
 }
 
 export function getQuestionsByKnowledgePoint(knowledgePointId: number): QuestionRow[] {
   return db.prepare(
-    `SELECT id, question_text, answer, explanation, difficulty, question_type, options, knowledge_point_id
-     FROM questions WHERE knowledge_point_id = ?`,
+    `SELECT id, question_text, answer, explanation, difficulty, question_type,
+            options, knowledge_point_id
+     FROM questions WHERE knowledge_point_id = ? AND status = 'published'`,
   ).all(knowledgePointId) as QuestionRow[];
+}
+
+export function getQuestionsForKpQuiz(
+  kpId: number,
+  userId: number,
+  limit: number,
+  excludeIds?: number[],
+): QuestionRow[] {
+  let query = `
+    SELECT id, question_text, answer, explanation, difficulty, question_type,
+           options, knowledge_point_id
+    FROM questions
+    WHERE knowledge_point_id = ?
+      AND (user_id IS NULL OR user_id = ?)
+      AND status = 'published'
+  `;
+  const params: (number | string)[] = [kpId, userId];
+  if (excludeIds && excludeIds.length > 0) {
+    query += ` AND id NOT IN (${excludeIds.map(() => "?").join(",")})`;
+    params.push(...excludeIds);
+  }
+  query += ` ORDER BY RANDOM() LIMIT ?`;
+  params.push(limit);
+  return db.prepare(query).all(...params) as QuestionRow[];
+}
+
+export function updateQuestionExplanation(id: number, explanation: string): void {
+  db.prepare("UPDATE questions SET explanation = ? WHERE id = ?").run(explanation, id);
 }
 
 export function getQuestionById(id: number): QuestionRow | undefined {
   return db.prepare(
-    `SELECT id, question_text, answer, explanation, difficulty, question_type, options, knowledge_point_id
+    `SELECT id, question_text, answer, explanation, difficulty, question_type,
+            options, knowledge_point_id
      FROM questions WHERE id = ?`,
   ).get(id) as QuestionRow | undefined;
 }
 
+export function getAllQuestions(status?: string): QuestionRow[] {
+  if (status) {
+    return db.prepare(
+      `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+              q.options, q.knowledge_point_id, q.status, q.exam_paper_id
+       FROM questions q WHERE q.status = ? ORDER BY q.id DESC`,
+    ).all(status) as QuestionRow[];
+  }
+  return db.prepare(
+    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+            q.options, q.knowledge_point_id, q.status, q.exam_paper_id
+     FROM questions q ORDER BY q.id DESC`,
+  ).all() as QuestionRow[];
+}
+
+export function updateQuestion(id: number, fields: Record<string, unknown>): boolean {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  for (const [k, v] of Object.entries(fields)) {
+    const allowed = ["question_text", "answer", "explanation", "difficulty",
+      "question_type", "options", "status", "exam_paper_id", "knowledge_point_id"];
+    if (allowed.includes(k) && v !== undefined) {
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+  }
+  if (sets.length === 0) return false;
+  vals.push(id);
+  const result = db.prepare(
+    `UPDATE questions SET ${sets.join(", ")} WHERE id = ?`,
+  ).run(...vals);
+  return result.changes > 0;
+}
+
+export function deleteQuestion(id: number): boolean {
+  const result = db.prepare("DELETE FROM questions WHERE id = ?").run(id);
+  return result.changes > 0;
+}
+
+// ============== User-private question queries ==============
+
+export function addUserQuestion(
+  userId: number,
+  questionText: string,
+  answer: string,
+  questionType: string,
+  explanation?: string,
+  difficulty?: number,
+  options?: string,
+  kpId?: number,
+  examPaperId?: number,
+): number {
+  const result = db.prepare(
+    `INSERT INTO questions (user_id, exam_paper_id, knowledge_point_id, question_text, answer,
+       explanation, difficulty, question_type, options, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+  ).run(userId, examPaperId || null, kpId || null, questionText, answer,
+    explanation || null, difficulty || 1, questionType, options || null,
+    new Date().toISOString());
+  return result.lastInsertRowid as number;
+}
+
+export function getUserQuestions(
+  userId: number,
+  opts?: { kpId?: number; type?: string; difficulty?: number; page?: number; limit?: number },
+): { questions: QuestionRow[]; total: number } {
+  const page = Math.max(1, opts?.page || 1);
+  const limit = Math.min(100, Math.max(1, opts?.limit || 20));
+  const conditions: string[] = ["q.user_id = ?"];
+  const params: unknown[] = [userId];
+
+  if (opts?.kpId) {
+    conditions.push("q.knowledge_point_id = ?");
+    params.push(opts.kpId);
+  }
+  if (opts?.type) {
+    conditions.push("q.question_type = ?");
+    params.push(opts.type);
+  }
+  if (opts?.difficulty) {
+    conditions.push("q.difficulty = ?");
+    params.push(opts.difficulty);
+  }
+
+  const where = conditions.join(" AND ");
+
+  const totalRow = db.prepare(
+    `SELECT COUNT(*) as cnt FROM questions q WHERE ${where}`,
+  ).get(...params) as { cnt: number };
+
+  const questions = db.prepare(
+    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+            q.options, q.knowledge_point_id, q.status, q.exam_paper_id
+     FROM questions q
+     WHERE ${where}
+     ORDER BY q.created_at DESC
+     LIMIT ? OFFSET ?`,
+  ).all(...params, limit, (page - 1) * limit) as QuestionRow[];
+
+  return { questions, total: totalRow.cnt };
+}
+
+export function updateUserQuestion(
+  id: number,
+  userId: number,
+  fields: Record<string, unknown>,
+): boolean {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const allowed = ["question_text", "answer", "explanation", "difficulty",
+    "question_type", "options", "status", "knowledge_point_id", "exam_paper_id"];
+  for (const [k, v] of Object.entries(fields)) {
+    if (allowed.includes(k) && v !== undefined) {
+      sets.push(`${k} = ?`);
+      vals.push(v);
+    }
+  }
+  if (sets.length === 0) return false;
+  vals.push(id, userId);
+  const result = db.prepare(
+    `UPDATE questions SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`,
+  ).run(...vals);
+  return result.changes > 0;
+}
+
+export function deleteUserQuestion(id: number, userId: number): boolean {
+  const result = db.prepare(
+    "DELETE FROM questions WHERE id = ? AND user_id = ?",
+  ).run(id, userId);
+  return result.changes > 0;
+}
+
+export function bulkImportUserQuestions(
+  userId: number,
+  items: {
+    question_text: string;
+    answer: string;
+    question_type?: string;
+    explanation?: string;
+    difficulty?: number;
+    options?: string;
+    knowledge_point_id?: number;
+    exam_paper_id?: number;
+  }[],
+): { imported: number } {
+  const stmt = db.prepare(
+    `INSERT INTO questions (user_id, exam_paper_id, knowledge_point_id, question_text, answer,
+       explanation, difficulty, question_type, options, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+  );
+  const now = new Date().toISOString();
+  const insertMany = db.transaction(() => {
+    let count = 0;
+    for (const q of items) {
+      stmt.run(userId, q.exam_paper_id || null, q.knowledge_point_id || null,
+        q.question_text, q.answer, q.explanation || null,
+        q.difficulty || 1, q.question_type || "short_answer",
+        q.options || null, now);
+      count++;
+    }
+    return count;
+  });
+  return { imported: insertMany() };
+}
+
+// Admin: paginated questions with filters
+export function getQuestionsAdmin(opts?: {
+  subjectId?: number; kpId?: number; status?: string; page?: number; limit?: number;
+}): { questions: QuestionRow[]; total: number } {
+  const page = Math.max(1, opts?.page || 1);
+  const limit = Math.min(100, Math.max(1, opts?.limit || 20));
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (opts?.subjectId) {
+    conditions.push(`(q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?) OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`);
+    params.push(opts.subjectId, opts.subjectId);
+  }
+  if (opts?.kpId) {
+    conditions.push("q.knowledge_point_id = ?");
+    params.push(opts.kpId);
+  }
+  if (opts?.status) {
+    conditions.push("q.status = ?");
+    params.push(opts.status);
+  }
+  const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+  const totalRow = db.prepare(
+    `SELECT COUNT(*) as cnt FROM questions q ${where}`,
+  ).get(...params) as { cnt: number };
+
+  const questions = db.prepare(
+    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+            q.options, q.knowledge_point_id, q.status, q.exam_paper_id, q.user_id
+     FROM questions q ${where}
+     ORDER BY q.created_at DESC
+     LIMIT ? OFFSET ?`,
+  ).all(...params, limit, (page - 1) * limit) as QuestionRow[];
+
+  return { questions, total: totalRow.cnt };
+}
+
+export function toggleQuestionStatus(id: number): string | null {
+  const row = db.prepare("SELECT status FROM questions WHERE id = ?").get(id) as { status: string } | undefined;
+  if (!row) return null;
+  const next = row.status === "published" ? "draft" : "published";
+  db.prepare("UPDATE questions SET status = ? WHERE id = ?").run(next, id);
+  return next;
+}
+
+export function findDuplicateQuestions(text: string): { id: number; question_text: string }[] {
+  // Simple similarity: find questions whose text shares at least 60% common words
+  const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+  if (words.length === 0) return [];
+  const likePattern = words.slice(0, 3).map(w => `%${w}%`).join(" OR question_text LIKE ");
+  return db.prepare(
+    `SELECT id, question_text FROM questions WHERE question_text LIKE ${likePattern} LIMIT 10`,
+  ).all(...words.slice(0, 3).map(w => `%${w}%`)) as { id: number; question_text: string }[];
+}
+
+export function bulkImportQuestionsAdmin(
+  items: {
+    question_text: string; answer: string; question_type?: string;
+    explanation?: string; difficulty?: number; options?: string;
+    knowledge_point_id?: number; exam_paper_id?: number; status?: string; user_id?: number;
+  }[],
+): { imported: number } {
+  const stmt = db.prepare(
+    `INSERT INTO questions (user_id, exam_paper_id, knowledge_point_id, question_text, answer,
+       explanation, difficulty, question_type, options, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const now = new Date().toISOString();
+  const insertMany = db.transaction(() => {
+    let count = 0;
+    for (const q of items) {
+      stmt.run(q.user_id || null, q.exam_paper_id || null, q.knowledge_point_id || null,
+        q.question_text, q.answer, q.explanation || null,
+        q.difficulty || 1, q.question_type || "short_answer",
+        q.options || null, q.status || "draft", now);
+      count++;
+    }
+    return count;
+  });
+  return { imported: insertMany() };
+}
+
+export function getUserProfile(userId: number): {
+  total_answers: number; correct_answers: number; accuracy: number;
+  active_days: number; active_plans: number; total_quizzes: number;
+  weak_kp_count: number; avg_mastery: number;
+} {
+  const answers = db.prepare(
+    `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
+     FROM quiz_answers qa JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
+     WHERE qs.user_id = ?`,
+  ).get(userId) as { total: number; correct: number };
+
+  const activeDays = db.prepare(
+    `SELECT COUNT(DISTINCT DATE(timestamp)) as cnt FROM messages WHERE user_id = ?`,
+  ).get(userId) as { cnt: number };
+
+  const plans = db.prepare(
+    "SELECT COUNT(*) as cnt FROM study_plans WHERE user_id = ?",
+  ).get(userId) as { cnt: number };
+
+  const quizzes = db.prepare(
+    "SELECT COUNT(*) as cnt FROM quiz_sessions WHERE user_id = ?",
+  ).get(userId) as { cnt: number };
+
+  const weakKps = db.prepare(
+    "SELECT COUNT(*) as cnt FROM user_kp_weakness WHERE user_id = ?",
+  ).get(userId) as { cnt: number };
+
+  const masteryRows = db.prepare(
+    "SELECT mastery FROM user_kp_mastery WHERE user_id = ?",
+  ).all(userId) as { mastery: number }[];
+
+  const avg = masteryRows.length > 0
+    ? masteryRows.reduce((s, r) => s + r.mastery, 0) / masteryRows.length : 0;
+
+  return {
+    total_answers: answers.total,
+    correct_answers: answers.correct,
+    accuracy: answers.total > 0 ? Math.round((answers.correct / answers.total) * 100) : 0,
+    active_days: activeDays.cnt,
+    active_plans: plans.cnt,
+    total_quizzes: quizzes.cnt,
+    weak_kp_count: weakKps.cnt,
+    avg_mastery: Math.round(avg * 1000) / 1000,
+  };
+}
+
+export function deleteUserCascade(userId: number): void {
+  const del = db.transaction(() => {
+    db.prepare("DELETE FROM messages WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM quiz_answers WHERE quiz_session_id IN (SELECT id FROM quiz_sessions WHERE user_id = ?)").run(userId);
+    db.prepare("DELETE FROM quiz_sessions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM wrong_questions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM study_plans WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM scheduled_tasks WHERE user_id = ?").run(String(userId));
+    db.prepare("DELETE FROM session_context WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_kp_mastery WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_kp_weakness WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM questions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+  });
+  del();
+}
+
 // ============== Quiz session queries ==============
 
-export function createQuizSession(subjectId: number, chatJid: string): number {
+export function createQuizSession(subjectId: number, userId: number): number {
   const result = db.prepare(
-    `INSERT INTO quiz_sessions (subject_id, chat_jid, started_at) VALUES (?, ?, ?)`,
-  ).run(subjectId, chatJid, new Date().toISOString());
+    "INSERT INTO quiz_sessions (subject_id, user_id, started_at) VALUES (?, ?, ?)",
+  ).run(subjectId, userId, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
 export function recordQuizAnswer(
-  sessionId: number,
-  questionId: number,
-  studentAnswer: string,
-  isCorrect: boolean,
+  sessionId: number, questionId: number,
+  studentAnswer: string, isCorrect: boolean,
+  weakKpIds?: number[],
 ): void {
   db.prepare(
-    `INSERT INTO quiz_answers (quiz_session_id, question_id, student_answer, is_correct, answered_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(sessionId, questionId, studentAnswer, isCorrect ? 1 : 0, new Date().toISOString());
+    `INSERT INTO quiz_answers (quiz_session_id, question_id, student_answer, is_correct, weak_kp_ids, answered_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(sessionId, questionId, studentAnswer, isCorrect ? 1 : 0,
+    weakKpIds?.length ? JSON.stringify(weakKpIds) : null,
+    new Date().toISOString());
+}
+
+export function updateQuizAnswerWeakKps(
+  sessionId: number,
+  questionId: number,
+  kpIds: number[],
+): void {
+  db.prepare(
+    `UPDATE quiz_answers SET weak_kp_ids = ? WHERE quiz_session_id = ? AND question_id = ?`,
+  ).run(JSON.stringify(kpIds), sessionId, questionId);
 }
 
 export function finishQuizSession(sessionId: number): { total: number; correct: number } {
   const stats = db.prepare(
-    `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
-     FROM quiz_answers WHERE quiz_session_id = ?`,
+    "SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct FROM quiz_answers WHERE quiz_session_id = ?",
   ).get(sessionId) as { total: number; correct: number };
   db.prepare(
-    `UPDATE quiz_sessions SET finished_at = ?, total_questions = ?, correct_count = ?
-     WHERE id = ?`,
+    "UPDATE quiz_sessions SET finished_at = ?, total_questions = ?, correct_count = ? WHERE id = ?",
   ).run(new Date().toISOString(), stats.total, stats.correct, sessionId);
   return stats;
 }
 
-export function getActiveQuizSession(chatJid: string): {
-  id: number;
-  subject_id: number;
-  started_at: string;
+export function getActiveQuizSession(userId: number): {
+  id: number; subject_id: number; started_at: string;
 } | undefined {
   return db.prepare(
     `SELECT id, subject_id, started_at FROM quiz_sessions
-     WHERE chat_jid = ? AND finished_at IS NULL
+     WHERE user_id = ? AND finished_at IS NULL
      ORDER BY started_at DESC LIMIT 1`,
-  ).get(chatJid) as { id: number; subject_id: number; started_at: string } | undefined;
+  ).get(userId) as { id: number; subject_id: number; started_at: string } | undefined;
 }
 
 export function getQuizSessionAnswers(sessionId: number): {
-  question_id: number;
-  student_answer: string;
-  is_correct: number;
+  question_id: number; student_answer: string; is_correct: number;
 }[] {
   return db.prepare(
-    `SELECT question_id, student_answer, is_correct FROM quiz_answers WHERE quiz_session_id = ?`,
+    "SELECT question_id, student_answer, is_correct FROM quiz_answers WHERE quiz_session_id = ?",
   ).all(sessionId) as { question_id: number; student_answer: string; is_correct: number }[];
 }
 
-// ============== Wrong question / Spaced repetition queries ==============
+// ============== Wrong question / Spaced repetition ==============
 
-export function recordWrongQuestion(questionId: number, chatJid: string): void {
+export function recordWrongQuestion(questionId: number, userId: number): void {
   const existing = db.prepare(
-    `SELECT id, wrong_count FROM wrong_questions WHERE question_id = ? AND chat_jid = ?`,
-  ).get(questionId, chatJid) as { id: number; wrong_count: number } | undefined;
+    "SELECT id, wrong_count FROM wrong_questions WHERE question_id = ? AND user_id = ?",
+  ).get(questionId, userId) as { id: number; wrong_count: number } | undefined;
 
   const now = new Date();
-  const nextReview = new Date(now.getTime() + 24 * 60 * 60 * 1000); // +1 day
+  const nextReview = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
   if (existing) {
     db.prepare(
@@ -699,9 +940,10 @@ export function recordWrongQuestion(questionId: number, chatJid: string): void {
     ).run(existing.wrong_count + 1, now.toISOString(), nextReview.toISOString(), existing.id);
   } else {
     db.prepare(
-      `INSERT INTO wrong_questions (question_id, chat_jid, wrong_count, consecutive_correct, last_reviewed_at, next_review_at, review_interval_days, mastered)
+      `INSERT INTO wrong_questions (question_id, user_id, wrong_count, consecutive_correct,
+         last_reviewed_at, next_review_at, review_interval_days, mastered)
        VALUES (?, ?, 1, 0, ?, ?, 1, 0)`,
-    ).run(questionId, chatJid, now.toISOString(), nextReview.toISOString());
+    ).run(questionId, userId, now.toISOString(), nextReview.toISOString());
   }
 }
 
@@ -721,7 +963,7 @@ export interface WrongQuestionRow {
   mastered: number;
 }
 
-export function getDueReviews(chatJid: string, subjectId?: number): WrongQuestionRow[] {
+export function getDueReviews(userId: number, subjectId?: number): WrongQuestionRow[] {
   const now = new Date().toISOString();
   let query = `
     SELECT wq.id, wq.question_id, q.question_text, q.answer, q.explanation,
@@ -729,30 +971,24 @@ export function getDueReviews(chatJid: string, subjectId?: number): WrongQuestio
            wq.last_reviewed_at, wq.next_review_at, wq.review_interval_days, wq.mastered
     FROM wrong_questions wq
     JOIN questions q ON wq.question_id = q.id
-    WHERE wq.chat_jid = ? AND wq.next_review_at <= ? AND wq.mastered = 0`;
+    WHERE wq.user_id = ? AND wq.next_review_at <= ? AND wq.mastered = 0`;
   if (subjectId) {
     query += ` AND (q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)
                  OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`;
     return db.prepare(query + " ORDER BY wq.next_review_at ASC LIMIT 20").all(
-      chatJid,
-      now,
-      subjectId,
-      subjectId,
+      userId, now, subjectId, subjectId,
     ) as WrongQuestionRow[];
   }
   return db.prepare(query + " ORDER BY wq.next_review_at ASC LIMIT 20").all(
-    chatJid,
-    now,
+    userId, now,
   ) as WrongQuestionRow[];
 }
 
 export function updateReviewResult(wrongQuestionId: number, isCorrect: boolean): {
-  consecutive_correct: number;
-  mastered: boolean;
-  next_review_at: string;
+  consecutive_correct: number; mastered: boolean; next_review_at: string;
 } {
   const row = db.prepare(
-    `SELECT consecutive_correct, review_interval_days FROM wrong_questions WHERE id = ?`,
+    "SELECT consecutive_correct, review_interval_days FROM wrong_questions WHERE id = ?",
   ).get(wrongQuestionId) as { consecutive_correct: number; review_interval_days: number };
 
   const now = new Date();
@@ -775,7 +1011,6 @@ export function updateReviewResult(wrongQuestionId: number, isCorrect: boolean):
     return { consecutive_correct: newConsecutive, mastered: mastered === 1, next_review_at: nextReview.toISOString() };
   }
 
-  // Wrong again — reset
   const nextReview = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   db.prepare(
     `UPDATE wrong_questions
@@ -788,8 +1023,7 @@ export function updateReviewResult(wrongQuestionId: number, isCorrect: boolean):
 }
 
 export function getWrongQuestionsBySubject(
-  chatJid: string,
-  subjectId?: number,
+  userId: number, subjectId?: number,
 ): { question_text: string; answer: string; wrong_count: number; mastered: number; subject_name: string }[] {
   if (subjectId) {
     return db.prepare(
@@ -799,14 +1033,10 @@ export function getWrongQuestionsBySubject(
        LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
        LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
        LEFT JOIN subjects s ON (kp.subject_id = s.id OR ep.subject_id = s.id)
-       WHERE wq.chat_jid = ? AND s.id = ?
+       WHERE wq.user_id = ? AND s.id = ?
        ORDER BY wq.wrong_count DESC`,
-    ).all(chatJid, subjectId) as {
-      question_text: string;
-      answer: string;
-      wrong_count: number;
-      mastered: number;
-      subject_name: string;
+    ).all(userId, subjectId) as {
+      question_text: string; answer: string; wrong_count: number; mastered: number; subject_name: string;
     }[];
   }
   return db.prepare(
@@ -816,50 +1046,35 @@ export function getWrongQuestionsBySubject(
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
      LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
      LEFT JOIN subjects s ON (kp.subject_id = s.id OR ep.subject_id = s.id)
-     WHERE wq.chat_jid = ?
+     WHERE wq.user_id = ?
      ORDER BY wq.mastered ASC, wq.wrong_count DESC`,
-  ).all(chatJid) as {
-    question_text: string;
-    answer: string;
-    wrong_count: number;
-    mastered: number;
-    subject_name: string;
+  ).all(userId) as {
+    question_text: string; answer: string; wrong_count: number; mastered: number; subject_name: string;
   }[];
 }
 
-export function getStudyStats(chatJid: string, subjectId?: number): {
-  total_quizzes: number;
-  total_answers: number;
-  correct_answers: number;
-  active_wrong_questions: number;
-  mastered_questions: number;
-  due_reviews: number;
+export function getStudyStats(userId: number, subjectId?: number): {
+  total_quizzes: number; total_answers: number; correct_answers: number;
+  active_wrong_questions: number; mastered_questions: number; due_reviews: number;
 } {
   const now = new Date().toISOString();
-  const subjectFilter = subjectId ? "AND subject_id = ?" : "";
-  const wqSubjectFilter = subjectId
-    ? `AND (q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)
-         OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`
-    : "";
-
-  const params: (string | number)[] = [chatJid];
-  if (subjectId) params.push(subjectId);
 
   const quizCount = db.prepare(
-    `SELECT COUNT(*) as cnt FROM quiz_sessions WHERE chat_jid = ? ${subjectFilter}`,
-  ).get(...params) as { cnt: number };
+    "SELECT COUNT(*) as cnt FROM quiz_sessions WHERE user_id = ?" +
+    (subjectId ? " AND subject_id = ?" : ""),
+  ).get(userId, ...(subjectId ? [subjectId] : [])) as { cnt: number };
 
-  params.length = 1;
   const answerStats = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
      FROM quiz_answers qa
      JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
-     WHERE qs.chat_jid = ? ${subjectFilter}`,
-  ).get(...params) as { total: number; correct: number };
+     WHERE qs.user_id = ?` +
+    (subjectId ? " AND qs.subject_id = ?" : ""),
+  ).get(userId, ...(subjectId ? [subjectId] : [])) as { total: number; correct: number };
 
-  params.length = 1;
+  const wqParams: (number | string)[] = [userId];
   if (subjectId) {
-    params.push(subjectId, subjectId);
+    wqParams.push(subjectId, subjectId);
   }
   const wqStats = db.prepare(
     `SELECT
@@ -868,15 +1083,17 @@ export function getStudyStats(chatJid: string, subjectId?: number): {
        COALESCE(SUM(CASE WHEN wq.next_review_at <= ? AND wq.mastered = 0 THEN 1 ELSE 0 END), 0) as due
      FROM wrong_questions wq
      JOIN questions q ON wq.question_id = q.id
-     WHERE wq.chat_jid = ? ${wqSubjectFilter}`,
-  ).get(now, ...params) as { active: number; mastered: number; due: number };
+     WHERE wq.user_id = ?` +
+    (subjectId
+      ? ` AND (q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)
+            OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`
+      : ""),
+  ).get(now, ...wqParams) as { active: number; mastered: number; due: number };
 
   return {
-    total_quizzes: quizCount.cnt,
-    total_answers: answerStats.total,
+    total_quizzes: quizCount.cnt, total_answers: answerStats.total,
     correct_answers: answerStats.correct,
-    active_wrong_questions: wqStats.active,
-    mastered_questions: wqStats.mastered,
+    active_wrong_questions: wqStats.active, mastered_questions: wqStats.mastered,
     due_reviews: wqStats.due,
   };
 }
@@ -884,54 +1101,40 @@ export function getStudyStats(chatJid: string, subjectId?: number): {
 // ============== Study plan queries ==============
 
 export interface StudyPlanRow {
-  id: number;
-  chat_jid: string;
-  subject_id: number | null;
-  title: string;
-  plan_data: string;
-  start_date: string;
-  end_date: string;
-  created_at: string;
+  id: number; user_id: number; subject_id: number | null;
+  title: string; plan_data: string;
+  start_date: string; end_date: string; created_at: string;
 }
 
 export interface PlanTask {
-  day: number;
-  date: string;
-  topic: string;
-  task: string;
-  completed: boolean;
+  day: number; date: string; topic: string; task: string; completed: boolean;
 }
 
 export function createStudyPlan(
-  chatJid: string,
-  title: string,
-  planData: PlanTask[],
-  startDate: string,
-  endDate: string,
-  subjectId?: number,
+  userId: number, title: string, planData: PlanTask[],
+  startDate: string, endDate: string, subjectId?: number,
 ): number {
   const result = db.prepare(
-    `INSERT INTO study_plans (chat_jid, subject_id, title, plan_data, start_date, end_date, created_at)
+    `INSERT INTO study_plans (user_id, subject_id, title, plan_data, start_date, end_date, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(chatJid, subjectId || null, title, JSON.stringify(planData), startDate, endDate, new Date().toISOString());
+  ).run(userId, subjectId || null, title, JSON.stringify(planData), startDate, endDate, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
 export function getStudyPlan(planId: number): (StudyPlanRow & { tasks: PlanTask[] }) | undefined {
   const row = db.prepare(
-    "SELECT id, chat_jid, subject_id, title, plan_data, start_date, end_date, created_at FROM study_plans WHERE id = ?",
+    "SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at FROM study_plans WHERE id = ?",
   ).get(planId) as StudyPlanRow | undefined;
   if (!row) return undefined;
   const tasks = JSON.parse(row.plan_data) as PlanTask[];
   return { ...row, tasks };
 }
 
-export function getActiveStudyPlan(chatJid: string): (StudyPlanRow & { tasks: PlanTask[] }) | undefined {
+export function getActiveStudyPlan(userId: number): (StudyPlanRow & { tasks: PlanTask[] }) | undefined {
   const row = db.prepare(
-    `SELECT id, chat_jid, subject_id, title, plan_data, start_date, end_date, created_at
-     FROM study_plans WHERE chat_jid = ?
-     ORDER BY created_at DESC LIMIT 1`,
-  ).get(chatJid) as StudyPlanRow | undefined;
+    `SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at
+     FROM study_plans WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`,
+  ).get(userId) as StudyPlanRow | undefined;
   if (!row) return undefined;
   const tasks = JSON.parse(row.plan_data) as PlanTask[];
   return { ...row, tasks };
@@ -942,132 +1145,229 @@ export function markPlanTaskDone(planId: number, dayIndex: number): PlanTask[] |
   if (!plan) return null;
   if (dayIndex < 0 || dayIndex >= plan.tasks.length) return null;
   plan.tasks[dayIndex].completed = true;
-  db.prepare("UPDATE study_plans SET plan_data = ? WHERE id = ?").run(
-    JSON.stringify(plan.tasks),
-    planId,
-  );
+  db.prepare("UPDATE study_plans SET plan_data = ? WHERE id = ?").run(JSON.stringify(plan.tasks), planId);
   return plan.tasks;
 }
 
 export function getStudyPlanProgress(planId: number): {
-  total: number;
-  completed: number;
-  percent: number;
-  upcoming: PlanTask[];
+  total: number; completed: number; percent: number; upcoming: PlanTask[];
 } | null {
   const plan = getStudyPlan(planId);
   if (!plan) return null;
   const total = plan.tasks.length;
   const completed = plan.tasks.filter((t) => t.completed).length;
   const upcoming = plan.tasks.filter((t) => !t.completed).slice(0, 5);
-  return {
-    total,
-    completed,
-    percent: total > 0 ? Math.round((completed / total) * 100) : 0,
-    upcoming,
-  };
+  return { total, completed, percent: total > 0 ? Math.round((completed / total) * 100) : 0, upcoming };
 }
 
-export function getStudyPlansByJid(chatJid: string): StudyPlanRow[] {
+export function getStudyPlansByUser(userId: number): StudyPlanRow[] {
   return db.prepare(
-    `SELECT id, chat_jid, subject_id, title, plan_data, start_date, end_date, created_at
-     FROM study_plans WHERE chat_jid = ? ORDER BY created_at DESC`,
-  ).all(chatJid) as StudyPlanRow[];
+    `SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at
+     FROM study_plans WHERE user_id = ? ORDER BY created_at DESC`,
+  ).all(userId) as StudyPlanRow[];
 }
 
 // ============== Session context queries ==============
 
 export interface SessionContext {
-  chat_jid: string;
-  topic: string | null;
-  weak_areas: string | null;
-  summary: string | null;
-  updated_at: string;
+  user_id: number; topic: string | null;
+  weak_areas: string | null; summary: string | null; updated_at: string;
 }
 
 export function getRecentMessages(
-  chatJid: string,
-  limit: number,
-  excludeBot?: boolean,
+  userId: number, limit: number, excludeBot?: boolean,
 ): NewMessage[] {
   let query = `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
-    FROM messages WHERE chat_jid = ?
+    FROM messages WHERE user_id = ?
   `;
-  if (excludeBot) {
-    query += " AND is_bot_message = 0";
-  }
+  if (excludeBot) query += " AND is_bot_message = 0";
   query += " ORDER BY timestamp DESC LIMIT ?";
-  return db.prepare(query).all(chatJid, limit).reverse() as NewMessage[];
+  return db.prepare(query).all(userId, limit).reverse() as NewMessage[];
 }
 
-export function getSessionContext(chatJid: string): SessionContext | undefined {
+export function getSessionContext(userId: number): SessionContext | undefined {
   return db.prepare(
-    "SELECT chat_jid, topic, weak_areas, summary, updated_at FROM session_context WHERE chat_jid = ?",
-  ).get(chatJid) as SessionContext | undefined;
+    "SELECT user_id, topic, weak_areas, summary, updated_at FROM session_context WHERE user_id = ?",
+  ).get(userId) as SessionContext | undefined;
 }
 
 export function upsertSessionContext(
-  chatJid: string,
-  topic?: string | null,
-  weakAreas?: string | null,
-  summary?: string | null,
+  userId: number, topic?: string | null,
+  weakAreas?: string | null, summary?: string | null,
 ): void {
-  const existing = getSessionContext(chatJid);
+  const existing = getSessionContext(userId);
   const now = new Date().toISOString();
 
   if (existing) {
     db.prepare(
       `UPDATE session_context
-       SET topic = COALESCE(?, topic),
-           weak_areas = COALESCE(?, weak_areas),
-           summary = COALESCE(?, summary),
-           updated_at = ?
-       WHERE chat_jid = ?`,
-    ).run(
-      topic ?? existing.topic,
-      weakAreas ?? existing.weak_areas,
-      summary ?? existing.summary,
-      now,
-      chatJid,
-    );
+       SET topic = COALESCE(?, topic), weak_areas = COALESCE(?, weak_areas),
+           summary = COALESCE(?, summary), updated_at = ?
+       WHERE user_id = ?`,
+    ).run(topic ?? existing.topic, weakAreas ?? existing.weak_areas,
+      summary ?? existing.summary, now, userId);
   } else {
     db.prepare(
-      `INSERT INTO session_context (chat_jid, topic, weak_areas, summary, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(chatJid, topic || null, weakAreas || null, summary || null, now);
+      "INSERT INTO session_context (user_id, topic, weak_areas, summary, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(userId, topic || null, weakAreas || null, summary || null, now);
   }
 }
 
-export function getWeakAreas(chatJid: string): string[] {
+export function getWeakAreas(userId: number): string[] {
   const rows = db.prepare(
     `SELECT s.name as subject, COUNT(*) as cnt
      FROM wrong_questions wq
      JOIN questions q ON wq.question_id = q.id
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
      LEFT JOIN subjects s ON kp.subject_id = s.id
-     WHERE wq.chat_jid = ? AND wq.mastered = 0
-     GROUP BY s.name
-     ORDER BY cnt DESC LIMIT 5`,
-  ).all(chatJid) as { subject: string; cnt: number }[];
+     WHERE wq.user_id = ? AND wq.mastered = 0
+     GROUP BY s.name ORDER BY cnt DESC LIMIT 5`,
+  ).all(userId) as { subject: string; cnt: number }[];
 
   return rows.map((r) => `${r.subject} (${r.cnt} wrong)`);
+}
+
+// ============== Knowledge point mastery ==============
+
+const KP_MASTERY_ALPHA = 0.2;
+
+export function updateKpMastery(
+  userId: number,
+  kpId: number,
+  correct: boolean,
+): { mastery: number; previous: number } {
+  const existing = db.prepare(
+    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND kp_id = ?",
+  ).get(userId, kpId) as { mastery: number } | undefined;
+
+  const previous = existing?.mastery ?? 0.5;
+  const target = correct ? 1 : 0;
+  const mastery = previous + KP_MASTERY_ALPHA * (target - previous);
+
+  db.prepare(
+    `INSERT INTO user_kp_mastery (user_id, kp_id, mastery, last_updated)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, kp_id) DO UPDATE SET mastery = excluded.mastery, last_updated = excluded.last_updated`,
+  ).run(userId, kpId, mastery, new Date().toISOString());
+
+  return { mastery: Math.round(mastery * 1000) / 1000, previous };
+}
+
+export function setWrongQuestionRootKp(
+  questionId: number,
+  userId: number,
+  kpId: number,
+): void {
+  db.prepare(
+    `UPDATE wrong_questions SET root_kp_id = COALESCE(root_kp_id, ?)
+     WHERE question_id = ? AND user_id = ?`,
+  ).run(kpId, questionId, userId);
+}
+
+export function upsertKpWeakness(
+  userId: number,
+  kpId: number,
+  questionId: number,
+): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO user_kp_weakness (user_id, kp_id, total_wrong, representative_question_id, last_wrong_time)
+     VALUES (?, ?, 1, ?, ?)
+     ON CONFLICT(user_id, kp_id) DO UPDATE SET
+       total_wrong = total_wrong + 1,
+       representative_question_id = COALESCE(user_kp_weakness.representative_question_id, excluded.representative_question_id),
+       last_wrong_time = excluded.last_wrong_time`,
+  ).run(userId, kpId, questionId, now);
+}
+
+export function clearKpWeaknessIfMastered(userId: number, kpId: number): boolean {
+  const row = db.prepare(
+    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND kp_id = ?",
+  ).get(userId, kpId) as { mastery: number } | undefined;
+  if (row && row.mastery > 0.8) {
+    db.prepare("DELETE FROM user_kp_weakness WHERE user_id = ? AND kp_id = ?").run(userId, kpId);
+    return true;
+  }
+  return false;
+}
+
+export interface UserKpMasteryRow {
+  kp_id: number;
+  mastery: number;
+  total_wrong: number;
+}
+
+export function getUserKpMastery(userId: number): UserKpMasteryRow[] {
+  return db.prepare(
+    `SELECT ukm.kp_id, ukm.mastery,
+            COALESCE(ukw.total_wrong, 0) as total_wrong
+     FROM user_kp_mastery ukm
+     LEFT JOIN user_kp_weakness ukw ON ukw.user_id = ukm.user_id AND ukw.kp_id = ukm.kp_id
+     WHERE ukm.user_id = ?
+     ORDER BY ukm.mastery ASC`,
+  ).all(userId) as UserKpMasteryRow[];
+}
+
+export interface WeakKpRow {
+  kp_id: number;
+  kp_name: string;
+  mastery: number;
+  total_wrong: number;
+}
+
+export function getWeakKpsForUser(userId: number): WeakKpRow[] {
+  return db.prepare(
+    `SELECT ukw.kp_id, kp.title as kp_name,
+            COALESCE(ukm.mastery, 0.5) as mastery,
+            ukw.total_wrong
+     FROM user_kp_weakness ukw
+     LEFT JOIN user_kp_mastery ukm ON ukm.user_id = ukw.user_id AND ukm.kp_id = ukw.kp_id
+     JOIN knowledge_points kp ON kp.id = ukw.kp_id
+     WHERE ukw.user_id = ?
+     ORDER BY ukm.mastery ASC NULLS FIRST
+     LIMIT 20`,
+  ).all(userId) as WeakKpRow[];
+}
+
+export function getKpMasteryStats(userId: number): {
+  avg_mastery: number;
+  kp_count: number;
+  weakness_total: number;
+  weakness_cleared: number;
+} {
+  const masteryRows = db.prepare(
+    "SELECT mastery FROM user_kp_mastery WHERE user_id = ?",
+  ).all(userId) as { mastery: number }[];
+
+  const avg = masteryRows.length > 0
+    ? masteryRows.reduce((s, r) => s + r.mastery, 0) / masteryRows.length
+    : 0;
+
+  const weaknessTotal = (db.prepare(
+    "SELECT COUNT(*) as cnt FROM user_kp_weakness WHERE user_id = ?",
+  ).get(userId) as { cnt: number }).cnt;
+
+  // Cleared = KPs with mastery > 0.8 that are NOT in weakness table anymore
+  const masteredCount = (db.prepare(
+    "SELECT COUNT(*) as cnt FROM user_kp_mastery WHERE user_id = ? AND mastery > 0.8",
+  ).get(userId) as { cnt: number }).cnt;
+
+  return {
+    avg_mastery: Math.round(avg * 1000) / 1000,
+    kp_count: masteryRows.length,
+    weakness_total: weaknessTotal,
+    weakness_cleared: Math.max(0, masteredCount - weaknessTotal),
+  };
 }
 
 // ============== Scheduled task queries ==============
 
 export interface ScheduledTaskRow {
-  id: string;
-  group_folder: string;
-  chat_jid: string;
-  prompt: string;
-  schedule_type: string;
-  schedule_value: string;
-  next_run: string | null;
-  last_run: string | null;
-  last_result: string | null;
-  status: string;
-  created_at: string;
+  id: string; user_id: string; chat_jid: string;
+  prompt: string; schedule_type: string; schedule_value: string;
+  next_run: string | null; last_run: string | null;
+  last_result: string | null; status: string; created_at: string;
 }
 
 function computeNextRun(type: string, value: string): string {
@@ -1079,21 +1379,29 @@ function computeNextRun(type: string, value: string): string {
     if (next <= now) next.setDate(next.getDate() + 1);
     return next.toISOString();
   }
-  if (type === "once") {
-    return value; // Already an ISO datetime
-  }
+  if (type === "once") return value;
   if (type === "interval") {
     const minutes = parseInt(value, 10) || 60;
     return new Date(now.getTime() + minutes * 60000).toISOString();
   }
-  // Default: 24 hours from now
   return new Date(now.getTime() + 86400000).toISOString();
 }
 
-export function getDueScheduledTasks(): ScheduledTaskRow[] {
+export function getDueScheduledTasks(userId: number): ScheduledTaskRow[] {
   const now = new Date().toISOString();
   return db.prepare(
-    `SELECT id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+    `SELECT id, user_id, chat_jid, prompt, schedule_type, schedule_value,
+            next_run, last_run, last_result, status, created_at
+     FROM scheduled_tasks
+     WHERE user_id = ? AND next_run <= ? AND status = 'active'
+     ORDER BY next_run ASC`,
+  ).all(String(userId), now) as ScheduledTaskRow[];
+}
+
+export function getAllDueScheduledTasks(): ScheduledTaskRow[] {
+  const now = new Date().toISOString();
+  return db.prepare(
+    `SELECT id, user_id, chat_jid, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
      FROM scheduled_tasks
      WHERE next_run <= ? AND status = 'active'
@@ -1102,43 +1410,34 @@ export function getDueScheduledTasks(): ScheduledTaskRow[] {
 }
 
 export function createScheduledTask(
-  groupFolder: string,
-  chatJid: string,
-  prompt: string,
-  scheduleType: string,
-  scheduleValue: string,
+  userId: number, chatJid: string, prompt: string,
+  scheduleType: string, scheduleValue: string,
 ): string {
   const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const nextRun = computeNextRun(scheduleType, scheduleValue);
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, group_folder, chat_jid, prompt, schedule_type, schedule_value, next_run, status, created_at)
+    `INSERT INTO scheduled_tasks (id, user_id, chat_jid, prompt, schedule_type, schedule_value, next_run, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-  ).run(id, groupFolder, chatJid, prompt, scheduleType, scheduleValue, nextRun, new Date().toISOString());
+  ).run(id, String(userId), chatJid, prompt, scheduleType, scheduleValue, nextRun, new Date().toISOString());
   return id;
 }
 
-export function updateScheduledTaskRun(
-  id: string,
-  nextRun: string,
-  lastResult?: string,
-): void {
+export function updateScheduledTaskRun(id: string, nextRun: string, lastResult?: string): void {
   db.prepare(
-    `UPDATE scheduled_tasks SET last_run = ?, next_run = ?, last_result = ? WHERE id = ?`,
+    "UPDATE scheduled_tasks SET last_run = ?, next_run = ?, last_result = ? WHERE id = ?",
   ).run(new Date().toISOString(), nextRun, lastResult || null, id);
 }
 
 export function cancelScheduledTask(id: string): boolean {
-  const result = db.prepare(
-    "UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = ?",
-  ).run(id);
+  const result = db.prepare("UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
-export function getScheduledTasksByJid(chatJid: string): ScheduledTaskRow[] {
+export function getScheduledTasksByUser(userId: number): ScheduledTaskRow[] {
   return db.prepare(
-    `SELECT id, group_folder, chat_jid, prompt, schedule_type, schedule_value,
+    `SELECT id, user_id, chat_jid, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
-     FROM scheduled_tasks WHERE chat_jid = ? AND status = 'active'
+     FROM scheduled_tasks WHERE user_id = ? AND status = 'active'
      ORDER BY next_run ASC`,
-  ).all(chatJid) as ScheduledTaskRow[];
+  ).all(String(userId)) as ScheduledTaskRow[];
 }

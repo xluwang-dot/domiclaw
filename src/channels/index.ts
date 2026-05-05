@@ -30,10 +30,6 @@ export function getRegisteredChannelNames(): string[] {
   return [...channelRegistry.keys()];
 }
 
-// 导入并注册 TUI 频道
-import { TUIChannel } from "./tui.js";
-registerChannel("tui", TUIChannel);
-
 // 导入并注册 Web 频道
 import { WebChannel } from "./http.js";
 registerChannel("web", WebChannel);

@@ -10,7 +10,7 @@
 ### 核心
 - **工具调用** — Agent 通过 15+ 工具执行数据库和文件操作
 - **多模型** — 支持 DeepSeek、Qwen、Anthropic、OpenAI 兼容 API
-- **多频道** — TUI 终端、Web 界面（HTTP + SSE），可扩展插件系统
+- **Web 界面** — HTTP + SSE，可扩展插件系统
 - **流式输出** — 实时 token 输出，支持思考/推理过程展示
 - **对话记忆** — 滑动上下文窗口 + 会话持久化
 - **命令系统** — `/help`、`/status`、`/review`、`/plan`、`/quiz`、`/wrong`（本地执行，无 API 消耗）
@@ -72,14 +72,6 @@ npm run build && npm start
 
 ### 4. 使用
 
-**TUI（终端）:**
-
-```
-=== Domiclaw TUI ===
-> 给我出 5 道数学题
-> 测验已开始！会话 ID: 1, 共 5 题...
-```
-
 **Web 界面:** 打开 `http://localhost:3456` — 左侧聊天，中间测验面板，背景为知识图谱画布。
 
 **命令:** 在聊天中输入 `/help` 查看本地命令列表（无 API 消耗）。
@@ -103,7 +95,6 @@ domiclaw/
 │   ├── env.ts                # .env 文件解析
 │   ├── channels/
 │   │   ├── index.ts          # 频道注册表
-│   │   ├── tui.ts            # 终端 UI 频道
 │   │   └── http.ts           # HTTP 服务器 + SSE + REST API
 │   └── tools/
 │       ├── index.ts          # 工具注册表

@@ -2,7 +2,7 @@ import { registerTool } from "./index.js";
 import {
   createScheduledTask,
   cancelScheduledTask,
-  getScheduledTasksByJid,
+  getScheduledTasksByUser,
 } from "../db.js";
 
 registerTool("schedule_daily_review", {
@@ -27,8 +27,8 @@ registerTool("schedule_daily_review", {
     }
 
     const taskId = createScheduledTask(
-      "main",
-      ctx.chatJid,
+      ctx.userId,
+      "web:console",
       "It's time for your daily review. Check due spaced repetition questions (get_due_reviews) and study plan progress (get_study_progress). Offer encouragement.",
       "daily",
       time,
@@ -76,7 +76,7 @@ registerTool("list_reminders", {
     },
   },
   async execute(args, ctx) {
-    const tasks = getScheduledTasksByJid(ctx.chatJid);
+    const tasks = getScheduledTasksByUser(ctx.userId);
     if (tasks.length === 0) {
       return "No active reminders. Use schedule_daily_review to set one up.";
     }

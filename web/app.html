@@ -208,6 +208,122 @@ body {
   transition: width 0.3s;
 }
 
+/* ── Question Bank Panel ── */
+.kb-toggle-btn {
+  position: fixed; right: 16px; bottom: 32px;
+  z-index: 2; background: rgba(45,45,45,0.9); border: 1px solid #555;
+  color: #aaa; font-size: 16px; padding: 8px 14px; border-radius: 8px;
+  cursor: pointer; transition: 0.15s;
+}
+.kb-toggle-btn:hover { background: #0a84ff; color: #fff; }
+.kb-panel {
+  position: fixed; left: 392px; right: 16px; top: 16px; bottom: 16px;
+  z-index: 1; background: rgba(30,30,30,0.92); border: 1px solid #444;
+  border-radius: 12px; display: flex; flex-direction: column;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5); overflow-y: auto;
+}
+.kb-header {
+  padding: 12px 16px; border-bottom: 1px solid #444;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.kb-header h3 { font-size: 15px; }
+.kb-header button {
+  padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px;
+}
+.kb-filters { display: flex; gap: 8px; align-items: center; padding: 8px 16px; border-bottom: 1px solid #333; flex-wrap: wrap; }
+.kb-filters select, .kb-filters input {
+  padding: 6px 10px; border-radius: 4px; border: 1px solid #555;
+  background: #2a2a2a; color: #eee; font-size: 12px; outline: none;
+}
+.kb-filters select:focus, .kb-filters input:focus { border-color: #0a84ff; }
+.kb-list { flex: 1; overflow-y: auto; padding: 8px; }
+.kb-item {
+  background: #2a2a2a; border: 1px solid #444; border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 6px; font-size: 13px;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+}
+.kb-item:hover { border-color: #0a84ff; }
+.kb-item-text { flex: 1; line-height: 1.4; }
+.kb-item-meta { font-size: 11px; color: #888; margin-top: 4px; }
+.kb-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.kb-item-actions button {
+  padding: 3px 10px; border-radius: 4px; border: none; cursor: pointer; font-size: 11px;
+}
+.kb-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #666; font-size: 14px; }
+
+.kb-form {
+  padding: 16px; border-bottom: 1px solid #444; background: #252525;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.kb-form label { font-size: 12px; color: #aaa; display: block; margin-bottom: 2px; }
+.kb-form input, .kb-form select, .kb-form textarea {
+  width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid #555;
+  background: #2a2a2a; color: #eee; font-size: 13px; outline: none;
+}
+.kb-form input:focus, .kb-form select:focus, .kb-form textarea:focus { border-color: #0a84ff; }
+.kb-form textarea { min-height: 60px; resize: vertical; }
+.kb-form-row { display: flex; gap: 10px; }
+.kb-form-row > div { flex: 1; }
+.kb-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.kb-form-actions button {
+  padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px;
+}
+.kb-form-actions .btn-cancel { background: #555; color: #ccc; }
+.kb-form-actions .btn-cancel:hover { background: #666; }
+.kb-pagination { display: flex; gap: 8px; justify-content: center; align-items: center; padding: 8px; }
+.kb-pagination button {
+  padding: 4px 10px; border-radius: 4px; border: 1px solid #555;
+  background: #333; color: #ccc; cursor: pointer; font-size: 12px;
+}
+.kb-pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
+.kb-pagination span { font-size: 12px; color: #888; }
+
+/* ── KP Quiz Modal ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-box {
+  background: #2a2a2a; border: 1px solid #555; border-radius: 12px;
+  padding: 24px; width: 600px; max-height: 80vh; overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.modal-box h3 { font-size: 16px; margin-bottom: 12px; }
+.modal-q {
+  background: #333; border: 1px solid #444; border-radius: 8px;
+  padding: 12px; margin-bottom: 8px;
+}
+.modal-q.correct { border-color: #4a9a4a; }
+.modal-q.wrong { border-color: #c05555; }
+.modal-q-text { font-size: 13px; margin-bottom: 8px; }
+.modal-q-options { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.modal-q-option {
+  padding: 4px 12px; border-radius: 4px; border: 1px solid #555;
+  background: #3a3a3a; color: #ddd; cursor: pointer; font-size: 12px;
+}
+.modal-q-option:hover { border-color: #0a84ff; }
+.modal-q-option.selected { background: #0a5aaa; border-color: #0a84ff; }
+.modal-q-input { display: flex; gap: 6px; }
+.modal-q-input input {
+  flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid #555;
+  background: #222; color: #eee; font-size: 13px; outline: none;
+}
+.modal-q-input input:focus { border-color: #0a84ff; }
+.modal-q-input button {
+  padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px;
+}
+.modal-q-result { font-size: 12px; margin-top: 6px; padding: 6px; border-radius: 4px; }
+.modal-q-result.correct { background: rgba(74,154,74,0.2); color: #8c8; }
+.modal-q-result.wrong { background: rgba(192,85,85,0.2); color: #c88; }
+.modal-expl {
+  font-size: 12px; margin-top: 4px; padding: 6px; background: #252525;
+  border-radius: 4px; color: #aaa; line-height: 1.5;
+}
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.modal-actions button {
+  padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px;
+}
+
 /* ── Toolbar (z=2, top center) ── */
 .toolbar {
   position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
@@ -272,6 +388,8 @@ body.light .edges-svg text { fill: #666; }
     <button @click="autoLayout('tree')">Tree</button>
     <button @click="fetchGraph">Refresh</button>
     <span class="t-hint">Scroll=Zoom | Drag=Pan | Click Node=View</span>
+    <span style="color:#888;font-size:12px" v-if="currentUser">{{ currentUser.username }}</span>
+    <button @click="logout" style="background:#a33;color:#fff;margin-left:4px" title="Logout">Logout</button>
     <div style="position:relative;margin-left:auto">
       <button @click="showSettings = !showSettings" title="Settings">⚙</button>
       <div v-if="showSettings" class="settings-dropdown">
@@ -305,7 +423,7 @@ body.light .edges-svg text { fill: #666; }
           </marker>
         </defs>
         <g>
-          <path v-for="edge in edges" :key="edge.id"
+          <path v-for="edge in visibleEdges" :key="edge.id"
             :d="getEdgePath(edge)"
             stroke="#666" stroke-width="2" fill="none"
             marker-end="url(#arrowhead)"
@@ -318,7 +436,7 @@ body.light .edges-svg text { fill: #666; }
           </text>
         </g>
       </svg>
-      <div v-for="node in nodes" :key="node.id"
+      <div v-for="node in visibleNodes" :key="node.id"
         class="graph-node"
         :class="[node.type, { 'has-wrong': node.meta?.hasWrong }]"
         :style="nodeStyle(node)"
@@ -436,6 +554,167 @@ body.light .edges-svg text { fill: #666; }
       </div>
     </div>
   </div>
+
+  <!-- Question Bank Panel Toggle -->
+  <button v-if="!kbVisible" class="kb-toggle-btn" @click="kbVisible = true; fetchMyQuestions()" title="My Question Bank">
+    My QBank
+  </button>
+
+  <!-- Question Bank Panel -->
+  <div class="kb-panel" v-if="kbVisible">
+    <div class="kb-header">
+      <h3>My Question Bank</h3>
+      <div style="display:flex;gap:8px">
+        <button @click="kbShowForm = !kbShowForm; editingQ = null" style="background:#0a84ff;color:#fff">
+          {{ kbShowForm ? 'Cancel' : '+ New Question' }}
+        </button>
+        <button @click="triggerImport" style="background:#555;color:#ccc">Import JSON</button>
+        <input type="file" ref="kbImportInput" accept=".json" style="display:none" @change="handleImportFile" />
+        <button class="quiz-toggle-close" @click="kbVisible = false" title="Hide question bank">&#187;</button>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="kb-filters">
+      <select v-model="kbFilterSubject" @change="onKbFilterChange">
+        <option value="">All Subjects</option>
+        <option v-for="s in kbSubjects" :key="s.id" :value="s.id">{{ s.name }}</option>
+      </select>
+      <select v-model="kbFilterKpId" @change="fetchMyQuestions">
+        <option value="">All Knowledge Points</option>
+        <option v-for="k in kbFilterKps" :key="k.id" :value="k.id">{{ k.title }}</option>
+      </select>
+      <select v-model="kbFilterType" @change="fetchMyQuestions">
+        <option value="">All Types</option>
+        <option value="short_answer">Short Answer</option>
+        <option value="multiple_choice">Multiple Choice</option>
+        <option value="essay">Essay</option>
+      </select>
+    </div>
+
+    <!-- Add/Edit Form -->
+    <div class="kb-form" v-if="kbShowForm">
+      <div class="kb-form-row">
+        <div>
+          <label>Type</label>
+          <select v-model="kbForm.question_type">
+            <option value="short_answer">Short Answer</option>
+            <option value="multiple_choice">Multiple Choice</option>
+            <option value="essay">Essay</option>
+          </select>
+        </div>
+        <div>
+          <label>Difficulty</label>
+          <select v-model="kbForm.difficulty">
+            <option :value="1">1</option><option :value="2">2</option><option :value="3">3</option>
+            <option :value="4">4</option><option :value="5">5</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Question</label>
+        <textarea v-model="kbForm.question_text" placeholder="Enter question text..."></textarea>
+      </div>
+      <div v-if="kbForm.question_type === 'multiple_choice'">
+        <label>Options (JSON: {"A": "option A", "B": "option B"})</label>
+        <input v-model="kbForm.options" placeholder='{"A": "...", "B": "..."}' />
+      </div>
+      <div>
+        <label>Answer</label>
+        <input v-model="kbForm.answer" placeholder="Correct answer" />
+      </div>
+      <div>
+        <label>Explanation (optional)</label>
+        <input v-model="kbForm.explanation" placeholder="Why this answer is correct" />
+      </div>
+      <div>
+        <label>Knowledge Point</label>
+        <select v-model="kbForm.knowledge_point_id">
+          <option :value="null">None</option>
+          <option v-for="k in kbAllKps" :key="k.id" :value="k.id">{{ k.title }}</option>
+        </select>
+      </div>
+      <div class="kb-form-actions">
+        <button class="btn-cancel" @click="kbShowForm = false; editingQ = null">Cancel</button>
+        <button @click="saveMyQuestion" style="background:#0a84ff;color:#fff">
+          {{ editingQ ? 'Update' : 'Create' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Question List -->
+    <div class="kb-list" v-if="!kbShowForm">
+      <div v-if="kbQuestions.length === 0" class="kb-empty">
+        <div>
+          No questions yet.<br>
+          Click <b>+ New Question</b> or <b>Import JSON</b> to add your own questions.
+        </div>
+      </div>
+      <div class="kb-item" v-for="q in kbQuestions" :key="q.id">
+        <div class="kb-item-text">
+          <div>{{ q.question_text.substring(0, 120) }}{{ q.question_text.length > 120 ? '...' : '' }}</div>
+          <div class="kb-item-meta">
+            [{{ q.question_type }}] {{ q.status }}
+            <span v-if="q.knowledge_point_id"> | KP: {{ getKpName(q.knowledge_point_id) }}</span>
+          </div>
+        </div>
+        <div class="kb-item-actions">
+          <button @click="editMyQuestion(q)" style="background:#0a84ff;color:#fff">Edit</button>
+          <button @click="deleteMyQuestion(q.id)" style="background:#a33;color:#fff">Del</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="kb-pagination" v-if="kbTotal > kbLimit && !kbShowForm">
+      <button @click="kbPage--; fetchMyQuestions()" :disabled="kbPage <= 1">Prev</button>
+      <span>{{ kbPage }} / {{ Math.ceil(kbTotal / kbLimit) }} ({{ kbTotal }} total)</span>
+      <button @click="kbPage++; fetchMyQuestions()" :disabled="kbPage * kbLimit >= kbTotal">Next</button>
+    </div>
+  </div>
+
+  <!-- KP Quiz Modal -->
+  <div v-if="kpModal.show" class="modal-overlay" @click.self="closeKpModal">
+    <div class="modal-box">
+      <h3>Quiz: {{ kpModal.kpName }}</h3>
+      <div v-if="kpModal.loading" style="color:#888;text-align:center;padding:32px">Loading...</div>
+      <div v-else>
+        <div v-for="(q, qi) in kpModal.questions" :key="q.id" class="modal-q"
+          :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
+          <div class="modal-q-text">
+            Q{{ qi+1 }}. [{{ q.type }}] {{ q.text }}
+          </div>
+          <div v-if="q.options && !q.answered" class="modal-q-options">
+            <button v-for="(label, k) in q.options" :key="k" class="modal-q-option"
+              :class="{ selected: q.selected === k }" @click="q.selected = k">{{ k }}: {{ label }}</button>
+          </div>
+          <div v-if="!q.answered" class="modal-q-input">
+            <input v-model="q.studentAnswer" :placeholder="q.type==='multiple_choice'?'Type letter A/B/C/D':'Your answer'"
+              @keyup.enter="submitKpAnswer(q, qi)" />
+            <button @click="submitKpAnswer(q, qi)" style="background:#0a84ff;color:#fff">Submit</button>
+          </div>
+          <div v-if="q.answered" class="modal-q-result" :class="q.result">
+            {{ q.result === 'correct' ? 'Correct!' : 'Incorrect' }}
+            <button @click="toggleExplanation(q)" style="margin-left:8px;background:none;border:none;color:#888;cursor:pointer;font-size:11px;text-decoration:underline">
+              {{ q.showExp ? 'Hide explanation' : 'Explain' }}
+            </button>
+            <div v-if="q.showExp" class="modal-expl">
+              <template v-if="q.explanation">{{ q.explanation }}</template>
+              <template v-else>Generating explanation...</template>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button @click="refreshKpQuiz" :disabled="kpModal.totalExhausted" v-if="kpModal.questions.length"
+          :style="{ background: kpModal.totalExhausted ? '#444' : '#555', color: '#ccc' }">
+          {{ kpModal.totalExhausted ? 'No more questions' : 'Refresh (new set)' }}
+        </button>
+        <button @click="finishKpQuiz" style="background:#a33;color:#fff" v-if="kpModal.questions.length">Finish</button>
+        <button @click="closeKpModal" style="background:#555;color:#ccc">Close</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -456,7 +735,23 @@ Vue.createApp({
       transformOrigin: '0 0',
     }));
 
-    const edgesWithLabels = computed(() => edges.value.filter(e => e.label));
+    const visibleNodes = computed(() => {
+      const expanded = expandedSubjects.value;
+      return nodes.value.filter(n => {
+        if (n.type === 'subject') return true;
+        // KP node: show if parent subject is expanded
+        const parentEdge = edges.value.find(e => e.toId === n.id && e.fromId.startsWith('subj-'));
+        if (!parentEdge) return true; // orphan, show it
+        return expanded.has(parentEdge.fromId);
+      });
+    });
+
+    const visibleEdges = computed(() => {
+      const vIds = new Set(visibleNodes.value.map(n => n.id));
+      return edges.value.filter(e => vIds.has(e.fromId) && vIds.has(e.toId));
+    });
+
+    const edgesWithLabels = computed(() => visibleEdges.value.filter(e => e.label));
 
     // Node positioning: offset to center of node for edges
     function getNodeCenter(node) {
@@ -486,7 +781,19 @@ Vue.createApp({
 
     function nodeStyle(node) {
       const w = node.type === 'subject' ? 140 : 120;
-      return { left: node.x + 'px', top: node.y + 'px', width: w + 'px' };
+      let borderColor = '';
+      if (node.type === 'knowledge_point') {
+        const kpId = node.id.startsWith('kp-') ? parseInt(node.id.slice(3)) : null;
+        const m = kpId ? kpMasteryMap.value[kpId] : null;
+        if (m) {
+          if (m.mastery < 0.5) borderColor = '#e05555';
+          else if (m.mastery <= 0.8) borderColor = '#e0c055';
+          else borderColor = '#5a9a5a';
+        }
+      }
+      const style = { left: node.x + 'px', top: node.y + 'px', width: w + 'px' };
+      if (borderColor) style.borderColor = borderColor;
+      return style;
     }
 
     // Canvas interaction
@@ -528,29 +835,74 @@ Vue.createApp({
 
     function onNodeClick(node) {
       if (node.type === 'subject') {
-        // Highlight in chat: suggest quiz for this subject
-        chatInput.value = `Create a quiz with 5 questions about ${node.label}`;
+        const set = expandedSubjects.value;
+        if (set.has(node.id)) set.delete(node.id); else set.add(node.id);
+        expandedSubjects.value = new Set(set); // trigger reactivity
+      } else if (node.type === 'knowledge_point') {
+        const kpId = node.id.startsWith('kp-') ? parseInt(node.id.slice(3)) : null;
+        if (kpId) openKpQuizModal(kpId, node.label);
       }
     }
 
     function autoLayout(type) {
       const subs = nodes.value.filter(n => n.type === 'subject');
       const kps = nodes.value.filter(n => n.type === 'knowledge_point');
-      const cols = 3;
-      subs.forEach((s, i) => {
-        const row = Math.floor(i / cols);
-        const col = i % cols;
-        s.x = 200 + col * 300;
-        s.y = 150 + row * 200;
-      });
-      kps.forEach((kp, ki) => {
-        const parentSubj = subs.find(s => s.id === edges.value.find(
-          e => e.toId === kp.id && e.fromId.startsWith('subj-'))?.fromId);
-        const base = parentSubj || { x: 400, y: 300 };
-        const angle = (ki / Math.max(kps.length, 1)) * Math.PI * 2 - Math.PI/2;
-        kp.x = base.x + Math.cos(angle) * 200;
-        kp.y = base.y + Math.sin(angle) * 200 + 70;
-      });
+      const subjW = 140, subjH = 52, kpW = 120, kpH = 38;
+      const spacingX = 60, spacingY = 70;
+
+      if (type === 'tree') {
+        // Tree layout: subjects in a row at top, KPs clustered below each subject
+        const totalWidth = subs.length * (subjW + spacingX) + spacingX;
+        const startX = 200;
+        subs.forEach((s, i) => {
+          s.x = startX + i * (subjW + spacingX);
+          s.y = 120;
+        });
+        // Arrange KPs under their parent subjects
+        const byParent = new Map();
+        for (const kp of kps) {
+          const parentEdge = edges.value.find(
+            e => e.toId === kp.id && e.fromId.startsWith('subj-'));
+          const pid = parentEdge?.fromId || '';
+          if (!byParent.has(pid)) byParent.set(pid, []);
+          byParent.get(pid).push(kp);
+        }
+        for (const [pid, children] of byParent) {
+          const parent = subs.find(s => s.id === pid);
+          const cx = parent ? parent.x + subjW / 2 : 400;
+          const cy = parent ? parent.y + subjH + 60 : 250;
+          const n = children.length;
+          if (n === 1) {
+            children[0].x = cx - kpW / 2;
+            children[0].y = cy;
+          } else {
+            const totalW = n * kpW + (n - 1) * 20;
+            const sx = cx - totalW / 2;
+            children.forEach((kp, j) => {
+              kp.x = sx + j * (kpW + 20);
+              kp.y = cy;
+            });
+          }
+        }
+      } else {
+        // Grid layout: subjects in grid, KPs around them
+        const cols = 3;
+        subs.forEach((s, i) => {
+          const row = Math.floor(i / cols);
+          const col = i % cols;
+          s.x = 200 + col * 300;
+          s.y = 150 + row * 250;
+        });
+        kps.forEach((kp, ki) => {
+          const parentEdge = edges.value.find(
+            e => e.toId === kp.id && e.fromId.startsWith('subj-'));
+          const parentSubj = subs.find(s => s.id === (parentEdge?.fromId));
+          const base = parentSubj || { x: 400, y: 300 };
+          const angle = (ki / Math.max(kps.length, 1)) * Math.PI * 2 - Math.PI / 2;
+          kp.x = base.x + Math.cos(angle) * 200;
+          kp.y = base.y + Math.sin(angle) * 200 + 70;
+        });
+      }
     }
 
     // ──────── API helpers ────────
@@ -568,12 +920,33 @@ Vue.createApp({
       return r.json();
     }
 
+    async function apiPut(path, body) {
+      const r = await fetch(path, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return r.json();
+    }
+
+    async function apiDelete(path) {
+      const r = await fetch(path, { method: 'DELETE' });
+      if (r.status === 204) return { ok: true };
+      return r.json();
+    }
+
     async function fetchGraph() {
       try {
         const data = await apiGet('/api/graph');
         nodes.value = data.nodes || [];
         edges.value = data.edges || [];
-        autoLayout('grid');
+        autoLayout('tree');
+        // Auto-expand all subjects on first load
+        const set = new Set();
+        for (const n of data.nodes || []) {
+          if (n.type === 'subject') set.add(n.id);
+        }
+        expandedSubjects.value = set;
       } catch (e) {
         console.error('fetchGraph', e);
       }
@@ -637,7 +1010,7 @@ Vue.createApp({
     }
 
     function connectSSE() {
-      const es = new EventSource('/api/stream?jid=web:console');
+      const es = new EventSource('/api/stream');
       let thinkingText = '';
 
       es.addEventListener('connected', () => {});
@@ -693,6 +1066,25 @@ Vue.createApp({
     const showSettings = ref(false);
     const theme = ref(localStorage.getItem('domiclaw-theme') || 'dark');
     const modelName = ref(localStorage.getItem('domiclaw-model') || '');
+    const currentUser = ref(null);
+
+    async function logout() {
+      await apiPost('/api/auth/logout', {});
+      window.location.href = '/login.html';
+    }
+
+    async function checkAuth() {
+      try {
+        const data = await apiGet('/api/auth/me');
+        if (data.error) {
+          window.location.href = '/login.html';
+          return;
+        }
+        currentUser.value = data;
+      } catch {
+        window.location.href = '/login.html';
+      }
+    }
 
     function applyTheme() {
       document.body.classList.toggle('light', theme.value === 'light');
@@ -705,6 +1097,42 @@ Vue.createApp({
     const quizVisible = ref(true);
     const quizSubject = ref('');
     const quizLoading = ref(false);
+
+    // ── Question Bank State ──
+    const kbVisible = ref(false);
+    const kbShowForm = ref(false);
+    const editingQ = ref(null);
+    const kbForm = ref({ question_type: 'short_answer', difficulty: 1, question_text: '', answer: '', explanation: '', options: '', knowledge_point_id: null });
+    const kbQuestions = ref([]);
+    const kbTotal = ref(0);
+    const kbPage = ref(1);
+    const kbLimit = ref(20);
+    const kbFilterSubject = ref('');
+    const kbFilterKpId = ref('');
+    const kbFilterType = ref('');
+    const kbSubjects = ref([]);
+    const kbFilterKps = ref([]);
+    const kbAllKps = ref([]);
+    const kbImportInput = ref(null);
+
+    // ── Mastery map: kp_id → { mastery, total_wrong }
+    const kpMasteryMap = ref({});
+
+    // ── Expanded subjects / KP quiz modal
+    const expandedSubjects = ref(new Set());
+    const kpModal = ref({ show: false, loading: false, kpId: null, kpName: '', sessionId: null,
+      questions: [], excludeIds: [], totalExhausted: false });
+
+    async function fetchMastery() {
+      try {
+        const data = await apiGet('/api/user/kp-mastery');
+        const map = {};
+        for (const m of data || []) {
+          map[m.kp_id] = m;
+        }
+        kpMasteryMap.value = map;
+      } catch (e) { console.error('fetchMastery', e); }
+    }
 
     const quizStats = computed(() => {
       const total = quizQuestions.value.length;
@@ -765,14 +1193,216 @@ Vue.createApp({
         q.answered = true;
         q.result = data.correct ? 'correct' : 'wrong';
         q.explanation = data.explanation;
+        fetchMastery(); // refresh KP mastery colors after each answer
       } catch (e) {
         console.error('submitAnswer', e);
       }
     }
 
+    // ── Question Bank Methods ──
+
+    async function fetchKbData() {
+      try {
+        const [subjects, kps] = await Promise.all([
+          apiGet('/api/subjects'),
+          apiGet('/api/knowledge-points'),
+        ]);
+        kbSubjects.value = subjects || [];
+        kbAllKps.value = kps || [];
+      } catch (e) { console.error('fetchKbData', e); }
+    }
+
+    function onKbFilterChange() {
+      kbPage.value = 1;
+      kbFilterKpId.value = '';
+      if (kbFilterSubject.value) {
+        apiGet('/api/knowledge-points?subject_id=' + kbFilterSubject.value).then(d => {
+          kbFilterKps.value = d || [];
+        });
+      } else {
+        kbFilterKps.value = [];
+      }
+      fetchMyQuestions();
+    }
+
+    async function fetchMyQuestions() {
+      try {
+        const params = new URLSearchParams();
+        params.set('page', kbPage.value);
+        params.set('limit', kbLimit.value);
+        if (kbFilterKpId.value) params.set('kp_id', kbFilterKpId.value);
+        if (kbFilterType.value) params.set('type', kbFilterType.value);
+        const data = await apiGet('/api/my/questions?' + params.toString());
+        kbQuestions.value = data.questions || [];
+        kbTotal.value = data.total || 0;
+      } catch (e) { console.error('fetchMyQuestions', e); }
+    }
+
+    async function saveMyQuestion() {
+      const f = kbForm.value;
+      const body = {
+        question_text: f.question_text,
+        answer: f.answer,
+        question_type: f.question_type,
+        difficulty: Number(f.difficulty),
+        explanation: f.explanation || undefined,
+        options: f.options || undefined,
+        knowledge_point_id: f.knowledge_point_id || undefined,
+      };
+      try {
+        if (editingQ.value) {
+          await apiPut('/api/my/questions/' + editingQ.value.id, body);
+        } else {
+          await apiPost('/api/my/questions', body);
+        }
+        kbShowForm.value = false;
+        editingQ.value = null;
+        kbForm.value = { question_type: 'short_answer', difficulty: 1, question_text: '', answer: '', explanation: '', options: '', knowledge_point_id: null };
+        await fetchMyQuestions();
+      } catch (e) { console.error('saveMyQuestion', e); }
+    }
+
+    function editMyQuestion(q) {
+      editingQ.value = q;
+      kbForm.value = {
+        question_type: q.question_type || 'short_answer',
+        difficulty: q.difficulty || 1,
+        question_text: q.question_text || '',
+        answer: q.answer || '',
+        explanation: q.explanation || '',
+        options: q.options || '',
+        knowledge_point_id: q.knowledge_point_id || null,
+      };
+      kbShowForm.value = true;
+    }
+
+    async function deleteMyQuestion(id) {
+      if (!confirm('Delete this question?')) return;
+      try {
+        await apiDelete('/api/my/questions/' + id);
+        await fetchMyQuestions();
+      } catch (e) { console.error('deleteMyQuestion', e); }
+    }
+
+    function triggerImport() {
+      kbImportInput.value?.click();
+    }
+
+    async function handleImportFile(e) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const items = JSON.parse(text);
+        const data = await apiPost('/api/my/questions/import', items);
+        alert('Imported ' + data.imported + ' question(s).');
+        await fetchMyQuestions();
+        e.target.value = '';
+      } catch (err) {
+        alert('Import failed: ' + (err.message || 'Invalid JSON'));
+      }
+    }
+
+    function getKpName(kpId) {
+      const kp = kbAllKps.value.find(k => k.id === kpId);
+      return kp ? kp.title : 'KP#' + kpId;
+    }
+
+    // ── KP Quiz Modal ──
+
+    async function openKpQuizModal(kpId, kpName) {
+      kpModal.value = { show: true, loading: true, kpId, kpName,
+        sessionId: null, questions: [], excludeIds: [], totalExhausted: false };
+      await loadKpQuiz();
+    }
+
+    async function loadKpQuiz() {
+      const m = kpModal.value;
+      m.loading = true;
+      try {
+        const data = await apiPost('/api/quiz/create-by-kp', {
+          kp_id: m.kpId,
+          limit: 5,
+          exclude_ids: m.excludeIds,
+        });
+        if (!data.questions || data.questions.length === 0) {
+          m.totalExhausted = true;
+          if (m.excludeIds.length > 0) {
+            m.questions = []; // no more fresh questions
+          }
+        } else {
+          m.sessionId = data.session_id;
+          m.questions = data.questions.map(q => ({
+            ...q, studentAnswer: '', selected: null, answered: false,
+            result: null, showExp: false, explanation: null,
+          }));
+        }
+      } catch (e) { console.error('loadKpQuiz', e); }
+      m.loading = false;
+    }
+
+    async function refreshKpQuiz() {
+      const m = kpModal.value;
+      // Track seen question IDs to exclude
+      const seenIds = m.questions.map(q => q.id);
+      m.excludeIds = [...new Set([...m.excludeIds, ...seenIds])];
+      await loadKpQuiz();
+    }
+
+    async function submitKpAnswer(q, qi) {
+      const answer = q.selected || q.studentAnswer;
+      if (!answer) return;
+      try {
+        const data = await apiPost('/api/quiz/answer', {
+          session_id: kpModal.value.sessionId,
+          question_id: q.id,
+          answer,
+        });
+        q.answered = true;
+        q.result = data.correct ? 'correct' : 'wrong';
+        fetchMastery();
+      } catch (e) { console.error('submitKpAnswer', e); }
+    }
+
+    async function toggleExplanation(q) {
+      q.showExp = !q.showExp;
+      if (q.showExp && !q.explanation) {
+        // Fetch explanation from API
+        try {
+          const data = await apiGet('/api/question/' + q.id + '/explanation');
+          if (data.explanation) {
+            q.explanation = data.explanation;
+          } else if (data.pending) {
+            // Poll once after a short delay
+            setTimeout(async () => {
+              try {
+                const retry = await apiGet('/api/question/' + q.id + '/explanation');
+                if (retry.explanation) q.explanation = retry.explanation;
+              } catch {}
+            }, 3000);
+          }
+        } catch {}
+      }
+    }
+
+    function finishKpQuiz() {
+      const m = kpModal.value;
+      const answered = m.questions.filter(q => q.answered).length;
+      const correct = m.questions.filter(q => q.result === 'correct').length;
+      addMessage('bot', `KP Quiz "${m.kpName}" finished: ${correct}/${answered} correct.`);
+      kpModal.value.show = false;
+    }
+
+    function closeKpModal() {
+      kpModal.value.show = false;
+    }
+
     // ──────── Init ────────
-    onMounted(() => {
+    onMounted(async () => {
+      await checkAuth();
       fetchGraph();
+      fetchKbData();
+      fetchMastery();
       addMessage('bot', 'Welcome to Domiclaw! I can help you study. Try: "Create a quiz with 5 questions about Mathematics"');
     });
 
@@ -784,13 +1414,23 @@ Vue.createApp({
       handleCanvasMouseDown, handleWheel, onNodeClick,
       autoLayout, fetchGraph,
       // Settings
-      showSettings, theme, modelName, applyTheme,
+      showSettings, theme, modelName, currentUser, logout, applyTheme,
       // Chat
       chatVisible, messages, chatInput, streaming, streamingText, chatMsgs,
       sendMessage,
       // Quiz
       quizVisible, quizQuestions, quizSessionId, quizSubject, quizLoading,
       quizStats, createQuiz, submitAnswer,
+      // Question Bank
+      kbVisible, kbShowForm, editingQ, kbForm, kbQuestions, kbTotal, kbPage, kbLimit,
+      kbFilterSubject, kbFilterKpId, kbFilterType, kbSubjects, kbFilterKps, kbAllKps,
+      kbImportInput,
+      fetchMyQuestions, saveMyQuestion, editMyQuestion, deleteMyQuestion,
+      triggerImport, handleImportFile, onKbFilterChange, getKpName,
+      // KP Quiz
+      expandedSubjects, kpModal, visibleNodes, visibleEdges,
+      openKpQuizModal, closeKpModal, refreshKpQuiz, submitKpAnswer,
+      toggleExplanation, finishKpQuiz,
     };
   }
 }).mount('#app');

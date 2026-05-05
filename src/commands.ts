@@ -14,11 +14,11 @@ import {
 
 interface CommandCtx {
   chatJid: string;
-  groupFolder: string;
+  userId: number;
 }
 
-function getCurrentSubject(chatJid: string): string | null {
-  const ctx = getSessionContext(chatJid);
+function getCurrentSubject(userId: number): string | null {
+  const ctx = getSessionContext(userId);
   return ctx?.topic || null;
 }
 
@@ -40,7 +40,7 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
   const cmd = parts[0]?.toLowerCase();
   const args = parts.slice(1);
 
-  const currentSubject = getCurrentSubject(ctx.chatJid);
+  const currentSubject = getCurrentSubject(ctx.userId);
 
   switch (cmd) {
     case "help":
@@ -58,14 +58,13 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
     case "subject": {
       const name = args[0]?.toLowerCase();
       if (!name) {
-        // Show or clear current subject
         if (currentSubject) {
           return `Current subject: ${currentSubject}. Use "/subject <name>" to change, or "/subject off" to clear.`;
         }
         return "No subject set. Use \"/subject <name>\" (e.g. \"/subject mathematics\").";
       }
       if (name === "off" || name === "clear" || name === "none") {
-        upsertSessionContext(ctx.chatJid, "", null, null);
+        upsertSessionContext(ctx.userId, "", null, null);
         return "Subject cleared. All subjects are now active.";
       }
       const s = getSubjectByName(name);
@@ -73,14 +72,14 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
         const subjects = getAllSubjects().map((s) => s.name).join(", ");
         return `Subject "${name}" not found. Available: ${subjects}`;
       }
-      upsertSessionContext(ctx.chatJid, s.name, null, null);
+      upsertSessionContext(ctx.userId, s.name, null, null);
       return `Subject set to "${s.name}". Commands like /status, /review, /quiz now default to this subject.`;
     }
 
     case "status": {
       const resolved = resolveSubject(args[0], currentSubject);
       if ("error" in resolved) return resolved.error;
-      const stats = getStudyStats(ctx.chatJid, resolved.id);
+      const stats = getStudyStats(ctx.userId, resolved.id);
       const accuracy = stats.total_answers > 0
         ? Math.round((stats.correct_answers / stats.total_answers) * 100)
         : 0;
@@ -96,7 +95,7 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
     case "review": {
       const resolved = resolveSubject(args[0], currentSubject);
       if ("error" in resolved) return resolved.error;
-      const due = getDueReviews(ctx.chatJid, resolved.id);
+      const due = getDueReviews(ctx.userId, resolved.id);
       if (due.length === 0) return `No reviews due for ${resolved.name}. Great job!`;
       return [
         `${resolved.name} — ${due.length} review(s) due:`,
@@ -108,7 +107,7 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
     }
 
     case "plan": {
-      const plan = getActiveStudyPlan(ctx.chatJid);
+      const plan = getActiveStudyPlan(ctx.userId);
       if (!plan) return "No active study plan. Ask Domiclaw to create one.";
       const progress = getStudyPlanProgress(plan.id);
       if (!progress) return "Error reading plan.";
@@ -134,7 +133,7 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
       const selected = questions
         .sort(() => Math.random() - 0.5)
         .slice(0, Math.min(count, questions.length));
-      const sessionId = createQuizSession(resolved.id, ctx.chatJid);
+      const sessionId = createQuizSession(resolved.id, ctx.userId);
       return [
         `Quiz: ${resolved.name} (Session ${sessionId}), ${selected.length} questions\n`,
         ...selected.map(
@@ -147,7 +146,7 @@ export function handleCommand(text: string, ctx: CommandCtx): string | null {
     case "wrong": {
       const resolved = resolveSubject(args[0], currentSubject);
       if ("error" in resolved) return resolved.error;
-      const wrong = getWrongQuestionsBySubject(ctx.chatJid, resolved.id);
+      const wrong = getWrongQuestionsBySubject(ctx.userId, resolved.id);
       if (wrong.length === 0) return `No wrong questions for ${resolved.name}. Great!`;
       return [
         `${resolved.name} — ${wrong.length} wrong question(s):`,
