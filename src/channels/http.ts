@@ -983,7 +983,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   // Batch import knowledge points
   app.post("/api/admin/knowledge-points/import", requireAuth, requireAdmin, (req: Request, res: Response) => {
     const { subject_id, items, format } = req.body as { subject_id: unknown; items: unknown; format?: string };
-    if (!subject_id || typeof subject_id !== "number") {
+    const subjectId = typeof subject_id === "number" ? subject_id : Number(subject_id);
+    if (!subjectId) {
       res.status(400).json({ error: "subject_id required (number)" });
       return;
     }
@@ -993,9 +994,9 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     }
 
     const subjects = getAllSubjects();
-    const subject = subjects.find((s) => s.id === subject_id);
+    const subject = subjects.find((s) => s.id === subjectId);
     if (!subject) {
-      res.status(404).json({ error: `Subject ${subject_id} not found` });
+      res.status(404).json({ error: `Subject ${subjectId} not found` });
       return;
     }
 
@@ -1043,7 +1044,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         // Build chapter tags with en name
         const chapterTags = chapterEn ? JSON.stringify({ en: chapterEn }) : undefined;
 
-        const result = importKpPath(subject_id, path, content, tags, ["root", "module", "chapter", "knowledge_point"]);
+        const result = importKpPath(subjectId, path, content, tags, ["root", "module", "chapter", "knowledge_point"]);
         if (result.error) {
           errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
         }
@@ -1052,7 +1053,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
         // If chapter node was created and has en tag, update it
         if (chapterEn) {
-          const chapterNodes = searchKnowledgePoints(chapterCn, subject_id);
+          const chapterNodes = searchKnowledgePoints(chapterCn, subjectId);
           const chapterNode = chapterNodes.find((k) => k.title === chapterCn && k.level_type === "chapter");
           if (chapterNode) {
             const existingTags = chapterNode.tags ? JSON.parse(chapterNode.tags) : {};
@@ -1075,7 +1076,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           continue;
         }
 
-        const result = importKpPath(subject_id, path, content, tags, levelTypes);
+        const result = importKpPath(subjectId, path, content, tags, levelTypes);
         if (result.error) {
           errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
         }
