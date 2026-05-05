@@ -761,13 +761,13 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   });
 
   app.post("/api/admin/subjects", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const { name, description } = req.body as Record<string, unknown>;
+    const { name, name_cn, alias, description } = req.body as Record<string, unknown>;
     if (!name || typeof name !== "string") {
       res.status(400).json({ error: "name required" });
       return;
     }
-    const id = addSubject(name, (description as string) || null);
-    res.json({ id, name, description });
+    const id = addSubject(name, (description as string) || null, (name_cn as string) || null, (alias as string) || null);
+    res.json({ id, name });
   });
 
   app.put("/api/admin/subjects/:id", requireAuth, requireAdmin, (req: Request, res: Response) => {

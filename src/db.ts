@@ -27,6 +27,8 @@ function createSchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS subjects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
+      name_cn TEXT,
+      alias TEXT,
       description TEXT,
       created_at TEXT NOT NULL
     );
@@ -168,15 +170,22 @@ function createSchema(database: Database.Database): void {
   ).get() as { cnt: number };
   if (count.cnt === 0) {
     const now = new Date().toISOString();
-    const subjects = [
-      "Mathematics", "Physics", "Chemistry", "Biology",
-      "English", "Chinese", "History", "Geography", "Politics",
+    const subjects: { name: string; name_cn: string | null; alias: string | null }[] = [
+      { name: "Mathematics", name_cn: "数学", alias: null },
+      { name: "Physics", name_cn: "物理", alias: null },
+      { name: "Chemistry", name_cn: "化学", alias: null },
+      { name: "Biology", name_cn: "生物", alias: null },
+      { name: "English", name_cn: "英语", alias: null },
+      { name: "Chinese", name_cn: "语文", alias: null },
+      { name: "History", name_cn: "历史", alias: null },
+      { name: "Geography", name_cn: "地理", alias: null },
+      { name: "Politics", name_cn: "政治", alias: "道法" },
     ];
     const insert = database.prepare(
-      "INSERT INTO subjects (name, description, created_at) VALUES (?, ?, ?)",
+      "INSERT INTO subjects (name, name_cn, alias, description, created_at) VALUES (?, ?, ?, ?, ?)",
     );
-    for (const name of subjects) {
-      insert.run(name, null, now);
+    for (const s of subjects) {
+      insert.run(s.name, s.name_cn, s.alias, null, now);
     }
   }
 }
@@ -196,6 +205,8 @@ export function initDatabase(): void {
     `ALTER TABLE quiz_answers ADD COLUMN weak_kp_ids TEXT`,
     `ALTER TABLE wrong_questions ADD COLUMN root_kp_id INTEGER`,
     `ALTER TABLE knowledge_points ADD COLUMN parent_id INTEGER REFERENCES knowledge_points(id)`,
+    `ALTER TABLE subjects ADD COLUMN name_cn TEXT`,
+    `ALTER TABLE subjects ADD COLUMN alias TEXT`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -236,21 +247,29 @@ export function getMessagesSince(
 
 // ============== Subject queries ==============
 
-export function getAllSubjects(): { id: number; name: string; description: string | null }[] {
-  return db.prepare("SELECT id, name, description FROM subjects ORDER BY name").all() as {
-    id: number; name: string; description: string | null;
-  }[];
+export interface SubjectRow {
+  id: number; name: string; name_cn: string | null; alias: string | null; description: string | null;
 }
 
-export function getSubjectByName(name: string): { id: number; name: string } | undefined {
-  return db.prepare("SELECT id, name FROM subjects WHERE name = ?").get(name) as
-    { id: number; name: string } | undefined;
+export function getAllSubjects(): SubjectRow[] {
+  return db.prepare(
+    "SELECT id, name, name_cn, alias, description FROM subjects ORDER BY name",
+  ).all() as SubjectRow[];
 }
 
-export function addSubject(name: string, description: string | null): number {
+export function getSubjectByName(name: string): SubjectRow | undefined {
+  return db.prepare(
+    "SELECT id, name, name_cn, alias, description FROM subjects WHERE name = ?",
+  ).get(name) as SubjectRow | undefined;
+}
+
+export function addSubject(
+  name: string, description: string | null,
+  nameCn: string | null = null, alias: string | null = null,
+): number {
   const result = db.prepare(
-    "INSERT INTO subjects (name, description, created_at) VALUES (?, ?, ?)",
-  ).run(name, description, new Date().toISOString());
+    "INSERT INTO subjects (name, name_cn, alias, description, created_at) VALUES (?, ?, ?, ?, ?)",
+  ).run(name, nameCn, alias, description, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
