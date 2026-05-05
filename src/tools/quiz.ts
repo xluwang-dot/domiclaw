@@ -2,6 +2,7 @@ import { registerTool } from "./index.js";
 import {
   createQuizSession,
   getAllSubjects,
+  getKnowledgePointById,
   getQuestionById,
   getQuestionsBySubject,
   getQuizSessionAnswers,
@@ -108,25 +109,28 @@ registerTool("record_answer", {
 
     const correct = checkAnswer(studentAnswer, question.answer, question.question_type);
 
-    // Collect associated knowledge points
+    // Determine subject_id from the primary KP
+    let subjectId = 0;
     const kpIds: number[] = [];
     if (question.knowledge_point_id) {
       kpIds.push(question.knowledge_point_id);
+      const kp = getKnowledgePointById(question.knowledge_point_id);
+      if (kp) subjectId = kp.subject_id;
     }
 
-    recordQuizAnswer(sessionId, questionId, studentAnswer, correct, correct ? undefined : kpIds);
+    recordQuizAnswer(sessionId, subjectId, questionId, studentAnswer, correct, correct ? undefined : kpIds);
 
     if (!correct) {
-      recordWrongQuestion(questionId, userId);
+      recordWrongQuestion(questionId, userId, subjectId);
       for (const kpId of kpIds) {
         setWrongQuestionRootKp(questionId, userId, kpId);
-        updateKpMastery(userId, kpId, false);
-        upsertKpWeakness(userId, kpId, questionId);
+        updateKpMastery(userId, subjectId, kpId, false);
+        upsertKpWeakness(userId, subjectId, kpId, questionId);
       }
     } else {
       for (const kpId of kpIds) {
-        updateKpMastery(userId, kpId, true);
-        clearKpWeaknessIfMastered(userId, kpId);
+        updateKpMastery(userId, subjectId, kpId, true);
+        clearKpWeaknessIfMastered(userId, subjectId, kpId);
       }
     }
 

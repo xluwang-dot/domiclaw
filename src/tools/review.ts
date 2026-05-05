@@ -159,7 +159,12 @@ registerTool("review_answer", {
       response += `\nNext review: ${result.next_review_at}`;
     } else {
       response += "\nReset to 1-day interval. Keep practicing!";
-      recordWrongQuestion(question.id, ctx.userId);
+      let subjId = 0;
+      if (question.knowledge_point_id) {
+        const kp = getKnowledgePointById(question.knowledge_point_id);
+        if (kp) subjId = kp.subject_id;
+      }
+      recordWrongQuestion(question.id, ctx.userId, subjId);
     }
 
     return response;

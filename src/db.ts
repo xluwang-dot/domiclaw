@@ -36,11 +36,15 @@ function createSchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS knowledge_points (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL,
+      parent_id INTEGER REFERENCES knowledge_points(id),
       title TEXT NOT NULL,
       content TEXT NOT NULL,
+      level_type TEXT NOT NULL DEFAULT 'knowledge_point',
+      sort_order INTEGER NOT NULL DEFAULT 0,
       tags TEXT,
       created_at TEXT NOT NULL,
-      FOREIGN KEY (subject_id) REFERENCES subjects(id)
+      FOREIGN KEY (subject_id) REFERENCES subjects(id),
+      UNIQUE(parent_id, title)
     );
 
     CREATE TABLE IF NOT EXISTS exam_papers (
@@ -58,6 +62,7 @@ function createSchema(database: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       exam_paper_id INTEGER,
       knowledge_point_id INTEGER,
+      knowledge_point_ids TEXT,
       question_text TEXT NOT NULL,
       answer TEXT NOT NULL,
       explanation TEXT,
@@ -86,8 +91,10 @@ function createSchema(database: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       quiz_session_id INTEGER NOT NULL,
       question_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL DEFAULT 0,
       student_answer TEXT,
       is_correct INTEGER DEFAULT 0,
+      weak_kp_ids TEXT,
       answered_at TEXT NOT NULL,
       FOREIGN KEY (quiz_session_id) REFERENCES quiz_sessions(id),
       FOREIGN KEY (question_id) REFERENCES questions(id)
@@ -97,6 +104,8 @@ function createSchema(database: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL DEFAULT 0,
+      root_kp_id INTEGER,
       wrong_count INTEGER DEFAULT 1,
       consecutive_correct INTEGER DEFAULT 0,
       last_reviewed_at TEXT NOT NULL,
@@ -146,21 +155,23 @@ function createSchema(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS user_kp_mastery (
       user_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL,
       kp_id INTEGER NOT NULL,
       mastery REAL NOT NULL DEFAULT 0.5,
       last_updated TEXT NOT NULL,
-      PRIMARY KEY (user_id, kp_id)
+      PRIMARY KEY (user_id, subject_id, kp_id)
     );
     CREATE INDEX IF NOT EXISTS idx_ukm_user ON user_kp_mastery(user_id);
     CREATE INDEX IF NOT EXISTS idx_ukm_kp ON user_kp_mastery(kp_id);
 
     CREATE TABLE IF NOT EXISTS user_kp_weakness (
       user_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL,
       kp_id INTEGER NOT NULL,
       total_wrong INTEGER DEFAULT 1,
       representative_question_id INTEGER,
       last_wrong_time TEXT,
-      PRIMARY KEY (user_id, kp_id)
+      PRIMARY KEY (user_id, subject_id, kp_id)
     );
   `);
 
@@ -190,6 +201,42 @@ function createSchema(database: Database.Database): void {
   }
 }
 
+// Level compatibility: parent → allowed children
+const LEVEL_RULES: Record<string, string[]> = {
+  "root": ["module", "domain", "unit", "chapter", "section", "knowledge_point"],
+  "module": ["chapter", "section", "knowledge_point"],
+  "domain": ["chapter", "section", "knowledge_point"],
+  "unit": ["chapter", "section", "knowledge_point"],
+  "chapter": ["knowledge_point"],
+  "section": ["knowledge_point"],
+  "knowledge_point": [], // leaf — no children
+};
+
+export function validateKnowledgePointLevel(
+  parentLevelType: string | null,
+  childLevelType: string,
+): { ok: boolean; error?: string } {
+  if (!parentLevelType) return { ok: true }; // root can have any level_type as child
+  const allowed = LEVEL_RULES[parentLevelType];
+  if (!allowed) return { ok: false, error: `Unknown parent level_type: ${parentLevelType}` };
+  if (!allowed.includes(childLevelType)) {
+    return { ok: false, error: `"${parentLevelType}" cannot contain "${childLevelType}". Allowed: ${allowed.join(", ")}` };
+  }
+  return { ok: true };
+}
+
+function ensureRootKnowledgePoints(database: Database.Database): void {
+  const subjects = database.prepare("SELECT id, name FROM subjects").all() as { id: number; name: string }[];
+  const insert = database.prepare(
+    `INSERT OR IGNORE INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at)
+     VALUES (?, NULL, ?, ?, 'root', 0, ?)`,
+  );
+  const now = new Date().toISOString();
+  for (const s of subjects) {
+    insert.run(s.id, s.name, `${s.name} 学科根节点`, now);
+  }
+}
+
 export function initDatabase(): void {
   const dbPath = path.join(STORE_DIR, "messages.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -202,9 +249,14 @@ export function initDatabase(): void {
   // Incremental migrations: add columns to existing tables (idempotent via try/catch)
   for (const stmt of [
     `ALTER TABLE questions ADD COLUMN user_id INTEGER REFERENCES users(id)`,
+    `ALTER TABLE questions ADD COLUMN knowledge_point_ids TEXT`,
     `ALTER TABLE quiz_answers ADD COLUMN weak_kp_ids TEXT`,
+    `ALTER TABLE quiz_answers ADD COLUMN subject_id INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE wrong_questions ADD COLUMN root_kp_id INTEGER`,
+    `ALTER TABLE wrong_questions ADD COLUMN subject_id INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE knowledge_points ADD COLUMN parent_id INTEGER REFERENCES knowledge_points(id)`,
+    `ALTER TABLE knowledge_points ADD COLUMN level_type TEXT NOT NULL DEFAULT 'knowledge_point'`,
+    `ALTER TABLE knowledge_points ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE subjects ADD COLUMN name_cn TEXT`,
     `ALTER TABLE subjects ADD COLUMN alias TEXT`,
   ]) {
@@ -212,6 +264,50 @@ export function initDatabase(): void {
   }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_questions_user ON questions(user_id)"); } catch { /* ok */ }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id)"); } catch { /* ok */ }
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_parent_title ON knowledge_points(parent_id, title) WHERE parent_id IS NOT NULL"); } catch { /* ok */ }
+
+  // Rebuild user_kp_mastery with (user_id, subject_id, kp_id) PK if needed
+  const masteryCols = db.prepare("PRAGMA table_info(user_kp_mastery)").all() as { name: string }[];
+  if (!masteryCols.some((c) => c.name === "subject_id")) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_kp_mastery_new (
+        user_id INTEGER NOT NULL,
+        subject_id INTEGER NOT NULL,
+        kp_id INTEGER NOT NULL,
+        mastery REAL NOT NULL DEFAULT 0.5,
+        last_updated TEXT NOT NULL,
+        PRIMARY KEY (user_id, subject_id, kp_id)
+      );
+      INSERT OR IGNORE INTO user_kp_mastery_new (user_id, subject_id, kp_id, mastery, last_updated)
+        SELECT m.user_id, COALESCE(kp.subject_id, 0), m.kp_id, m.mastery, m.last_updated
+        FROM user_kp_mastery m LEFT JOIN knowledge_points kp ON m.kp_id = kp.id;
+      DROP TABLE user_kp_mastery;
+      ALTER TABLE user_kp_mastery_new RENAME TO user_kp_mastery;
+      CREATE INDEX IF NOT EXISTS idx_ukm_user ON user_kp_mastery(user_id);
+      CREATE INDEX IF NOT EXISTS idx_ukm_kp ON user_kp_mastery(kp_id);
+    `);
+  }
+
+  // Rebuild user_kp_weakness with (user_id, subject_id, kp_id) PK if needed
+  const weaknessCols = db.prepare("PRAGMA table_info(user_kp_weakness)").all() as { name: string }[];
+  if (!weaknessCols.some((c) => c.name === "subject_id")) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_kp_weakness_new (
+        user_id INTEGER NOT NULL,
+        subject_id INTEGER NOT NULL,
+        kp_id INTEGER NOT NULL,
+        total_wrong INTEGER DEFAULT 1,
+        representative_question_id INTEGER,
+        last_wrong_time TEXT,
+        PRIMARY KEY (user_id, subject_id, kp_id)
+      );
+      INSERT OR IGNORE INTO user_kp_weakness_new (user_id, subject_id, kp_id, total_wrong, representative_question_id, last_wrong_time)
+        SELECT w.user_id, COALESCE(kp.subject_id, 0), w.kp_id, w.total_wrong, w.representative_question_id, w.last_wrong_time
+        FROM user_kp_weakness w LEFT JOIN knowledge_points kp ON w.kp_id = kp.id;
+      DROP TABLE user_kp_weakness;
+      ALTER TABLE user_kp_weakness_new RENAME TO user_kp_weakness;
+    `);
+  }
 
   // Seed name_cn/alias for existing subjects (idempotent)
   const nameCnMap: Record<string, { name_cn: string; alias: string | null }> = {
@@ -231,6 +327,9 @@ export function initDatabase(): void {
   for (const [name, info] of Object.entries(nameCnMap)) {
     updateSubject.run(info.name_cn, info.alias, name);
   }
+
+  // Create root KP nodes for existing subjects that lack one (idempotent)
+  ensureRootKnowledgePoints(db);
 
   // Init auth module
   initAuthDb(db);
@@ -306,68 +405,76 @@ export function deleteSubject(id: number): boolean {
 
 // ============== Knowledge point queries ==============
 
+export interface KnowledgePointRow {
+  id: number; subject_id: number; parent_id: number | null;
+  title: string; content: string; level_type: string;
+  sort_order: number; tags: string | null;
+}
+
 export function addKnowledgePoint(
-  subjectId: number, title: string, content: string, tags?: string,
+  subjectId: number, title: string, content: string,
+  parentId?: number | null, levelType?: string, sortOrder?: number, tags?: string,
 ): number {
   const result = db.prepare(
-    `INSERT INTO knowledge_points (subject_id, title, content, tags, created_at) VALUES (?, ?, ?, ?, ?)`,
-  ).run(subjectId, title, content, tags || null, new Date().toISOString());
+    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, tags, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(subjectId, parentId || null, title, content, levelType || "knowledge_point", sortOrder || 0, tags || null, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
-export function searchKnowledgePoints(query: string, subjectId?: number): {
-  id: number; subject_id: number; title: string; content: string; tags: string | null;
-}[] {
+export function searchKnowledgePoints(query: string, subjectId?: number): KnowledgePointRow[] {
   const like = `%${query}%`;
+  const cols = "id, subject_id, parent_id, title, content, level_type, sort_order, tags";
   if (subjectId) {
     return db.prepare(
-      `SELECT id, subject_id, title, content, tags FROM knowledge_points
+      `SELECT ${cols} FROM knowledge_points
        WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?) AND subject_id = ?
-       ORDER BY title LIMIT 20`,
-    ).all(like, like, like, subjectId) as {
-      id: number; subject_id: number; title: string; content: string; tags: string | null;
-    }[];
+       ORDER BY level_type, sort_order, title LIMIT 20`,
+    ).all(like, like, like, subjectId) as KnowledgePointRow[];
   }
   return db.prepare(
-    `SELECT id, subject_id, title, content, tags FROM knowledge_points
+    `SELECT ${cols} FROM knowledge_points
      WHERE title LIKE ? OR content LIKE ? OR tags LIKE ?
-     ORDER BY title LIMIT 20`,
-  ).all(like, like, like) as {
-    id: number; subject_id: number; title: string; content: string; tags: string | null;
-  }[];
+     ORDER BY level_type, sort_order, title LIMIT 20`,
+  ).all(like, like, like) as KnowledgePointRow[];
 }
 
-export function getKnowledgePointById(id: number): {
-  id: number; title: string; content: string; tags: string | null;
-} | undefined {
-  return db.prepare("SELECT id, title, content, tags FROM knowledge_points WHERE id = ?").get(id) as
-    { id: number; title: string; content: string; tags: string | null } | undefined;
-}
-
-export function getKnowledgePointsBySubject(subjectId: number): {
-  id: number; title: string; content: string; tags: string | null;
-}[] {
+export function getKnowledgePointById(id: number): KnowledgePointRow | undefined {
   return db.prepare(
-    "SELECT id, title, content, tags FROM knowledge_points WHERE subject_id = ? ORDER BY title",
-  ).all(subjectId) as { id: number; title: string; content: string; tags: string | null }[];
+    "SELECT id, subject_id, parent_id, title, content, level_type, sort_order, tags FROM knowledge_points WHERE id = ?",
+  ).get(id) as KnowledgePointRow | undefined;
 }
 
-export function getAllKnowledgePoints(): {
-  id: number; subject_id: number; title: string; content: string; tags: string | null;
-}[] {
+export function getKnowledgePointsBySubject(subjectId: number): KnowledgePointRow[] {
   return db.prepare(
-    "SELECT id, subject_id, title, content, tags FROM knowledge_points ORDER BY subject_id, title",
-  ).all() as { id: number; subject_id: number; title: string; content: string; tags: string | null }[];
+    `SELECT id, subject_id, parent_id, title, content, level_type, sort_order, tags
+     FROM knowledge_points WHERE subject_id = ?
+     ORDER BY level_type, sort_order, title`,
+  ).all(subjectId) as KnowledgePointRow[];
+}
+
+export function getAllKnowledgePoints(): KnowledgePointRow[] {
+  return db.prepare(
+    `SELECT id, subject_id, parent_id, title, content, level_type, sort_order, tags
+     FROM knowledge_points ORDER BY subject_id, level_type, sort_order, title`,
+  ).all() as KnowledgePointRow[];
 }
 
 export function updateKnowledgePoint(
   id: number, title?: string, content?: string, tags?: string | null,
+  parentId?: number | null, levelType?: string, sortOrder?: number,
 ): boolean {
   const result = db.prepare(
     `UPDATE knowledge_points
      SET title = COALESCE(?, title), content = COALESCE(?, content),
-         tags = COALESCE(?, tags) WHERE id = ?`,
-  ).run(title || null, content || null, tags !== undefined ? tags : null, id);
+         tags = COALESCE(?, tags), parent_id = COALESCE(?, parent_id),
+         level_type = COALESCE(?, level_type), sort_order = COALESCE(?, sort_order)
+     WHERE id = ?`,
+  ).run(
+    title || null, content || null, tags !== undefined ? tags : null,
+    parentId !== undefined ? (parentId ?? null) : null,
+    levelType || null, sortOrder ?? null, id,
+  );
   return result.changes > 0;
 }
 
@@ -395,13 +502,14 @@ export function addQuestion(
   examPaperId: number | null, knowledgePointId: number | null,
   questionText: string, answer: string, questionType: string,
   explanation?: string, difficulty?: number, options?: string,
+  knowledgePointIds?: string,
 ): number {
   const result = db.prepare(
-    `INSERT INTO questions (exam_paper_id, knowledge_point_id, question_text, answer, explanation,
-       difficulty, question_type, options, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(examPaperId, knowledgePointId, questionText, answer, explanation || null,
-    difficulty || 1, questionType, options || null, new Date().toISOString());
+    `INSERT INTO questions (exam_paper_id, knowledge_point_id, knowledge_point_ids,
+       question_text, answer, explanation, difficulty, question_type, options, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(examPaperId, knowledgePointId, knowledgePointIds || null, questionText, answer,
+    explanation || null, difficulty || 1, questionType, options || null, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
@@ -414,6 +522,7 @@ export interface QuestionRow {
   question_type: string;
   options: string | null;
   knowledge_point_id: number | null;
+  knowledge_point_ids: string | null;
   status?: string;
   exam_paper_id?: number | null;
 }
@@ -421,19 +530,19 @@ export interface QuestionRow {
 export function getQuestionsBySubject(subjectId: number, limit = 50): QuestionRow[] {
   return db.prepare(
     `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
-            q.options, q.knowledge_point_id
+            q.options, q.knowledge_point_id, q.knowledge_point_ids
      FROM questions q
      LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
      WHERE (ep.subject_id = ? OR kp.subject_id = ?) AND q.status = 'published'
-     ORDER BY RANDOM() LIMIT ?`,
-  ).all(subjectId, subjectId, limit) as QuestionRow[];
+     LIMIT 500`,
+  ).all(subjectId, subjectId) as QuestionRow[];
 }
 
 export function getQuestionsByKnowledgePoint(knowledgePointId: number): QuestionRow[] {
   return db.prepare(
     `SELECT id, question_text, answer, explanation, difficulty, question_type,
-            options, knowledge_point_id
+            options, knowledge_point_id, knowledge_point_ids
      FROM questions WHERE knowledge_point_id = ? AND status = 'published'`,
   ).all(knowledgePointId) as QuestionRow[];
 }
@@ -781,14 +890,14 @@ export function createQuizSession(subjectId: number, userId: number): number {
 }
 
 export function recordQuizAnswer(
-  sessionId: number, questionId: number,
+  sessionId: number, subjectId: number, questionId: number,
   studentAnswer: string, isCorrect: boolean,
   weakKpIds?: number[],
 ): void {
   db.prepare(
-    `INSERT INTO quiz_answers (quiz_session_id, question_id, student_answer, is_correct, weak_kp_ids, answered_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(sessionId, questionId, studentAnswer, isCorrect ? 1 : 0,
+    `INSERT INTO quiz_answers (quiz_session_id, subject_id, question_id, student_answer, is_correct, weak_kp_ids, answered_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(sessionId, subjectId, questionId, studentAnswer, isCorrect ? 1 : 0,
     weakKpIds?.length ? JSON.stringify(weakKpIds) : null,
     new Date().toISOString());
 }
@@ -833,7 +942,7 @@ export function getQuizSessionAnswers(sessionId: number): {
 
 // ============== Wrong question / Spaced repetition ==============
 
-export function recordWrongQuestion(questionId: number, userId: number): void {
+export function recordWrongQuestion(questionId: number, userId: number, subjectId: number): void {
   const existing = db.prepare(
     "SELECT id, wrong_count FROM wrong_questions WHERE question_id = ? AND user_id = ?",
   ).get(questionId, userId) as { id: number; wrong_count: number } | undefined;
@@ -844,10 +953,10 @@ export function recordWrongQuestion(questionId: number, userId: number): void {
   if (existing) {
     db.prepare(
       `UPDATE wrong_questions
-       SET wrong_count = ?, consecutive_correct = 0, last_reviewed_at = ?,
+       SET wrong_count = ?, subject_id = ?, consecutive_correct = 0, last_reviewed_at = ?,
            next_review_at = ?, review_interval_days = 1, mastered = 0
        WHERE id = ?`,
-    ).run(existing.wrong_count + 1, now.toISOString(), nextReview.toISOString(), existing.id);
+    ).run(existing.wrong_count + 1, subjectId, now.toISOString(), nextReview.toISOString(), existing.id);
   } else {
     db.prepare(
       `INSERT INTO wrong_questions (question_id, user_id, wrong_count, consecutive_correct,
@@ -1144,22 +1253,23 @@ const KP_MASTERY_ALPHA = 0.2;
 
 export function updateKpMastery(
   userId: number,
+  subjectId: number,
   kpId: number,
   correct: boolean,
 ): { mastery: number; previous: number } {
   const existing = db.prepare(
-    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND kp_id = ?",
-  ).get(userId, kpId) as { mastery: number } | undefined;
+    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
+  ).get(userId, subjectId, kpId) as { mastery: number } | undefined;
 
   const previous = existing?.mastery ?? 0.5;
   const target = correct ? 1 : 0;
   const mastery = previous + KP_MASTERY_ALPHA * (target - previous);
 
   db.prepare(
-    `INSERT INTO user_kp_mastery (user_id, kp_id, mastery, last_updated)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_id, kp_id) DO UPDATE SET mastery = excluded.mastery, last_updated = excluded.last_updated`,
-  ).run(userId, kpId, mastery, new Date().toISOString());
+    `INSERT INTO user_kp_mastery (user_id, subject_id, kp_id, mastery, last_updated)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, subject_id, kp_id) DO UPDATE SET mastery = excluded.mastery, last_updated = excluded.last_updated`,
+  ).run(userId, subjectId, kpId, mastery, new Date().toISOString());
 
   return { mastery: Math.round(mastery * 1000) / 1000, previous };
 }
@@ -1177,26 +1287,27 @@ export function setWrongQuestionRootKp(
 
 export function upsertKpWeakness(
   userId: number,
+  subjectId: number,
   kpId: number,
   questionId: number,
 ): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO user_kp_weakness (user_id, kp_id, total_wrong, representative_question_id, last_wrong_time)
-     VALUES (?, ?, 1, ?, ?)
-     ON CONFLICT(user_id, kp_id) DO UPDATE SET
+    `INSERT INTO user_kp_weakness (user_id, subject_id, kp_id, total_wrong, representative_question_id, last_wrong_time)
+     VALUES (?, ?, ?, 1, ?, ?)
+     ON CONFLICT(user_id, subject_id, kp_id) DO UPDATE SET
        total_wrong = total_wrong + 1,
        representative_question_id = COALESCE(user_kp_weakness.representative_question_id, excluded.representative_question_id),
        last_wrong_time = excluded.last_wrong_time`,
   ).run(userId, kpId, questionId, now);
 }
 
-export function clearKpWeaknessIfMastered(userId: number, kpId: number): boolean {
+export function clearKpWeaknessIfMastered(userId: number, subjectId: number, kpId: number): boolean {
   const row = db.prepare(
-    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND kp_id = ?",
-  ).get(userId, kpId) as { mastery: number } | undefined;
+    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
+  ).get(userId, subjectId, kpId) as { mastery: number } | undefined;
   if (row && row.mastery > 0.8) {
-    db.prepare("DELETE FROM user_kp_weakness WHERE user_id = ? AND kp_id = ?").run(userId, kpId);
+    db.prepare("DELETE FROM user_kp_weakness WHERE user_id = ? AND subject_id = ? AND kp_id = ?").run(userId, subjectId, kpId);
     return true;
   }
   return false;

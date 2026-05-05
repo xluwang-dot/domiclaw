@@ -565,10 +565,15 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         ? sa === ca
         : sa.includes(ca) || ca.includes(sa);
 
-    recordQuizAnswer(sessionId, questionId, answer, correct);
+    let subjectId = 0;
+    if (question.knowledge_point_id) {
+      const kp = getKnowledgePointById(question.knowledge_point_id);
+      if (kp) subjectId = kp.subject_id;
+    }
+    recordQuizAnswer(sessionId, subjectId, questionId, answer, correct);
 
     if (!correct) {
-      recordWrongQuestion(questionId, userId);
+      recordWrongQuestion(questionId, userId, subjectId);
     }
 
     const answers = getQuizSessionAnswers(sessionId);
@@ -767,6 +772,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       return;
     }
     const id = addSubject(name, (description as string) || null, (name_cn as string) || null, (alias as string) || null);
+    // Auto-create root knowledge point for this subject
+    addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0, undefined);
     res.json({ id, name });
   });
 
@@ -802,13 +809,15 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   });
 
   app.post("/api/admin/knowledge-points", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const { subject_id, title, content, tags } = req.body as Record<string, unknown>;
+    const { subject_id, title, content, tags, parent_id, level_type, sort_order } = req.body as Record<string, unknown>;
     if (!subject_id || !title || !content) {
       res.status(400).json({ error: "subject_id, title, content required" });
       return;
     }
     const id = addKnowledgePoint(
-      subject_id as number, title as string, content as string, tags as string | undefined,
+      subject_id as number, title as string, content as string,
+      (parent_id as number) || null, (level_type as string) || undefined,
+      (sort_order as number) || undefined, tags as string | undefined,
     );
     res.json({ id, title });
   });

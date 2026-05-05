@@ -38,7 +38,7 @@ registerTool("add_knowledge_point", {
       return `Subject "${subjectName}" not found. Available subjects: ${subjects}`;
     }
 
-    const id = addKnowledgePoint(subject.id, title, content, tags);
+    const id = addKnowledgePoint(subject.id, title, content, undefined, undefined, undefined, tags);
     return `Knowledge point added (ID: ${id}). Subject: ${subjectName}, Title: ${title}`;
   },
 });
