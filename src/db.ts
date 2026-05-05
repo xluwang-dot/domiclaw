@@ -226,7 +226,7 @@ export function validateKnowledgePointLevel(
 }
 
 function ensureRootKnowledgePoints(database: Database.Database): void {
-  const subjects = database.prepare("SELECT id, name FROM subjects").all() as { id: number; name: string }[];
+  const subjects = database.prepare("SELECT id, name, name_cn FROM subjects").all() as { id: number; name: string; name_cn: string | null }[];
   const exists = database.prepare(
     "SELECT 1 FROM knowledge_points WHERE subject_id = ? AND parent_id IS NULL AND level_type = 'root'",
   );
@@ -237,7 +237,8 @@ function ensureRootKnowledgePoints(database: Database.Database): void {
   const now = new Date().toISOString();
   for (const s of subjects) {
     if (!exists.get(s.id)) {
-      insert.run(s.id, s.name, `${s.name} 学科根节点`, now);
+      const title = s.name_cn || s.name;
+      insert.run(s.id, title, `${title} 学科根节点`, now);
     }
   }
 }
