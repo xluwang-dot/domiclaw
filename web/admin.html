@@ -91,10 +91,11 @@ tr:hover{background:rgba(255,255,255,0.03)}
 <option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
 <button class="btn btn-blue" @click="fetchKPs">Filter</button>
 <button class="btn btn-green" @click="showKpDialog=true;editingKp=null" style="margin-left:auto">+ Add</button>
+<button class="btn btn-gray" @click="showKpImport=true" style="margin-left:4px">Import</button>
 </div>
-<table v-if="kps.length"><thead><tr><th>ID</th><th>Title</th><th>Content</th><th>Parent</th><th>Actions</th></tr></thead>
+<table v-if="kps.length"><thead><tr><th>ID</th><th>Lv</th><th>Title</th><th>Content</th><th>Parent</th><th>Actions</th></tr></thead>
 <tbody><tr v-for="k in kps" :key="k.id">
-<td>{{k.id}}</td><td>{{k.title}}</td><td>{{(k.content||'').substring(0,60)}}...</td>
+<td>{{k.id}}</td><td style="font-size:10px;color:#0a84ff">{{k.level_type||'kp'}}</td><td>{{k.title}}</td><td>{{(k.content||'').substring(0,60)}}...</td>
 <td>{{getKpParentName(k.parent_id)||'-'}}</td>
 <td>
 <button class="btn-sm btn-blue" @click="editKp(k)">Edit</button>
@@ -163,12 +164,57 @@ tr:hover{background:rgba(255,255,255,0.03)}
 <select v-model="kpForm.subject_id"><option value="">Subject</option><option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
 <input v-model="kpForm.title" placeholder="Title" />
 <textarea v-model="kpForm.content" placeholder="Content"></textarea>
-<input v-model="kpForm.tags" placeholder="Tags (comma-separated)" />
-<select v-model="kpForm.parent_id"><option :value="null">No parent</option><option v-for="k in kps" :key="k.id" :value="k.id">{{k.title}}</option></select>
+<select v-model="kpForm.level_type"><option value="root">root (L1)</option><option value="module">module (L2)</option><option value="domain">domain (L2)</option><option value="unit">unit (L2)</option><option value="chapter">chapter (L3)</option><option value="section">section (L3)</option><option value="knowledge_point">knowledge_point (L4)</option></select>
+<input v-model.number="kpForm.sort_order" type="number" placeholder="Sort" style="width:80px" />
+<input v-model="kpForm.tags" placeholder="Tags" />
+<select v-model="kpForm.parent_id"><option :value="null">No parent</option><option v-for="k in kps" :key="k.id" :value="k.id">{{k.title}} ({{k.level_type||'kp'}})</option></select>
 </div>
 <div class="dialog-actions">
 <button class="btn-sm btn-gray" @click="showKpDialog=false">Cancel</button>
 <button class="btn-sm btn-blue" @click="saveKp">Save</button></div>
+</div></div>
+
+<!-- KP Import Dialog -->
+<div v-if="showKpImport" class="dialog-overlay" @click.self="showKpImport=false"><div class="dialog" style="width:680px;max-height:90vh">
+<h3>Import Knowledge Points</h3>
+<div style="background:#333;border-radius:8px;padding:14px;margin-bottom:14px;font-size:12px;line-height:1.6;max-height:240px;overflow-y:auto">
+<b>4-Level Flat Tree Structure</b><br><br>
+<table style="font-size:11px;margin:4px 0"><thead><tr><th>Layer</th><th>level_type</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>L1</td><td>root</td><td>数学</td></tr>
+<tr><td>L2</td><td>module | domain | unit</td><td>数与式</td></tr>
+<tr><td>L3</td><td>chapter | section</td><td>有理数</td></tr>
+<tr><td>L4</td><td>knowledge_point</td><td>绝对值 (leaf, no children)</td></tr>
+</tbody></table><br>
+<b>Rules:</b> knowledge_point is leaf (no children). Same parent+title = reuse existing node.<br>
+Path depth &gt; 4 → rejected. Missing intermediate nodes auto-created.<br><br>
+<b>Template:</b>
+<pre style="background:#1e1e1e;color:#8c8;padding:8px;border-radius:4px;overflow-x:auto;font-size:11px">{
+  "subject_id": 1,
+  "items": [
+    {
+      "path": ["数学", "数与式", "有理数", "绝对值"],
+      "content": "绝对值是指...",
+      "tags": "基础概念",
+      "level_types": ["root","module","chapter","knowledge_point"]
+    }
+  ]
+}</pre>
+</div>
+<div class="form-row" style="flex-direction:column">
+<select v-model="kpImportSubjectId"><option value="">Select subject</option>
+<option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name_cn||s.name}}</option></select>
+<textarea v-model="kpImportJson" placeholder='Paste JSON here (array of items or {subject_id, items: [...]} object)...' style="min-height:120px"></textarea>
+</div>
+<div v-if="kpImportResult" style="font-size:12px;margin-top:8px;padding:8px;background:#333;border-radius:4px">
+<span style="color:#4a9a4a" v-if="kpImportResult.created">Created: {{kpImportResult.created}} </span>
+<span style="color:#0a84ff" v-if="kpImportResult.reused">Reused: {{kpImportResult.reused}} </span>
+<span style="color:#e05555" v-if="kpImportResult.errors">{{kpImportResult.errors.length}} error(s)</span>
+<div v-if="kpImportResult.errors" style="color:#e05555;margin-top:4px;max-height:120px;overflow-y:auto"><div v-for="(e,i) in kpImportResult.errors" :key="i" style="font-size:11px">{{e}}</div></div>
+</div>
+<div class="dialog-actions">
+<button class="btn-sm btn-gray" @click="showKpImport=false;kpImportResult=null">Close</button>
+<button class="btn-sm btn-blue" @click="doKpImport">Import</button></div>
 </div></div>
 
 <!-- Question Dialog -->
@@ -215,7 +261,8 @@ const tab=ref('subjects'),user=ref(null);
 const subjects=ref([]),subjName=ref(''),subjDesc=ref('');
 // KPs
 const kps=ref([]),kpSubjectId=ref(''),allKps=ref([]),showKpDialog=ref(false),editingKp=ref(null);
-const kpForm=ref({subject_id:'',title:'',content:'',tags:'',parent_id:null});
+const kpForm=ref({subject_id:'',title:'',content:'',level_type:'knowledge_point',sort_order:0,tags:'',parent_id:null});
+const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null);
 // Questions
 const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]);
 const showQDialog=ref(false),editingQ=ref(null),qImportInput=ref(null),dupes=ref([]);
@@ -244,10 +291,16 @@ async function removeSubject(id){if(!confirm('Delete?'))return;await apiDelete('
 // KPs
 async function fetchKPs(){const sid=kpSubjectId.value;const url=sid?'/api/admin/knowledge-points?subject_id='+sid:'/api/admin/knowledge-points';kps.value=await apiGet(url)||[]}
 async function loadAllKps(){allKps.value=await apiGet('/api/admin/knowledge-points')||[]}
-async function saveKp(){const f=kpForm.value;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content,tags:f.tags||null,parent_id:f.parent_id||null};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
-function editKp(k){editingKp.value=k;kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content,tags:k.tags||'',parent_id:k.parent_id||null};showKpDialog.value=true}
+async function saveKp(){const f=kpForm.value;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content,level_type:f.level_type,sort_order:Number(f.sort_order),tags:f.tags||null,parent_id:f.parent_id||null};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
+function editKp(k){editingKp.value=k;kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content,level_type:k.level_type||'knowledge_point',sort_order:k.sort_order||0,tags:k.tags||'',parent_id:k.parent_id||null};showKpDialog.value=true}
 async function removeKp(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/knowledge-points/'+id);fetchKPs();loadAllKps()}
 function getKpParentName(pid){if(!pid)return null;const k=kps.value.find(x=>x.id===pid);return k?k.title:null}
+async function doKpImport(){
+if(!kpImportSubjectId.value){alert('Select a subject first');return}
+let input;try{input=JSON.parse(kpImportJson.value.trim());if(Array.isArray(input))input={subject_id:kpImportSubjectId.value,items:input}}catch{alert('Invalid JSON');return}
+const d=await apiPost('/api/admin/knowledge-points/import',{subject_id:input.subject_id||kpImportSubjectId.value,items:input.items||input});
+kpImportResult.value=d;fetchKPs();loadAllKps();
+}
 
 // Questions
 async function fetchQuestions(){
@@ -273,7 +326,7 @@ async function deleteUser(id,username){if(!confirm('Delete user "'+username+'" a
 onMounted(async()=>{await checkAuth();await fetchSubjects();await loadAllKps();await fetchQuestions();await fetchUsers()});
 return{tab,user,logout,window,
 subjects,subjName,subjDesc,createSubject,removeSubject,
-kps,kpSubjectId,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,removeKp,fetchKPs,getKpParentName,
+kps,kpSubjectId,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,removeKp,fetchKPs,getKpParentName,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,doKpImport,
 qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,qImportInput,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,triggerQImport,handleQImport,fetchQuestions,checkDedup,
 uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers};
 }}).mount('#app');</script>

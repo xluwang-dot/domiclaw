@@ -33,6 +33,8 @@ import {
   updateSubject,
   deleteSubject,
   addKnowledgePoint,
+  searchKnowledgePoints,
+  validateKnowledgePointLevel,
   getAllKnowledgePoints,
   updateKnowledgePoint,
   deleteKnowledgePoint,
@@ -820,6 +822,98 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       (sort_order as number) || undefined, tags as string | undefined,
     );
     res.json({ id, title });
+  });
+
+  // Batch import knowledge points
+  app.post("/api/admin/knowledge-points/import", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const { subject_id, items } = req.body as { subject_id: unknown; items: unknown };
+    if (!subject_id || typeof subject_id !== "number") {
+      res.status(400).json({ error: "subject_id required (number)" });
+      return;
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: "items must be a non-empty array" });
+      return;
+    }
+
+    const subject = getSubjectByName(String(subject_id));
+    // subject_id is actually an ID number, not a name
+    const subjects = getAllSubjects();
+    const subjectExists = subjects.find((s) => s.id === subject_id);
+    if (!subjectExists) {
+      res.status(404).json({ error: `Subject ${subject_id} not found` });
+      return;
+    }
+
+    let created = 0;
+    let reused = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] as Record<string, unknown>;
+      const path = item.path as string[];
+      const content = (item.content as string) || "";
+      const tags = item.tags as string | undefined;
+      const levelTypes = item.level_types as string[] | undefined;
+
+      if (!Array.isArray(path) || path.length === 0 || path.length > 4) {
+        errors.push(`Item ${i}: path must be 1-4 elements, got ${path?.length || 0}`);
+        continue;
+      }
+
+      // Default level_types by position: L1=root, L2=module, L3=chapter, L4=knowledge_point
+      const defaultLevels = ["root", "module", "chapter", "knowledge_point"];
+      const levels = levelTypes || defaultLevels.slice(0, path.length);
+
+      if (levels.length !== path.length) {
+        errors.push(`Item ${i}: level_types length (${levels.length}) must match path length (${path.length})`);
+        continue;
+      }
+
+      let parentId: number | null = null;
+      let skipRemaining = false;
+
+      for (let depth = 0; depth < path.length; depth++) {
+        if (skipRemaining) break;
+
+        const title = path[depth];
+        const levelType = levels[depth];
+
+        // Validate level compatibility
+        const parentLevel = depth === 0 ? null : levels[depth - 1];
+        const validation = validateKnowledgePointLevel(parentLevel, levelType);
+        if (!validation.ok) {
+          errors.push(`Item ${i} ["${path.join('","')}"] at depth ${depth}: ${validation.error}`);
+          skipRemaining = true;
+          break;
+        }
+
+        // Check if node already exists under this parent
+        const existing = searchKnowledgePoints(title, subject_id);
+        const existingUnderParent = existing.find(
+          (kp) => kp.title === title && kp.parent_id === parentId,
+        );
+
+        if (existingUnderParent) {
+          parentId = existingUnderParent.id;
+          reused++;
+        } else {
+          const nodeId = addKnowledgePoint(
+            subject_id, title, depth === path.length - 1 ? content : `${title} (auto-created)`,
+            parentId, levelType, depth, tags,
+          );
+          parentId = nodeId;
+          created++;
+        }
+      }
+    }
+
+    res.json({
+      created,
+      reused,
+      total: items.length,
+      errors: errors.length > 0 ? errors : undefined,
+    });
   });
 
   app.put("/api/admin/knowledge-points/:id", requireAuth, requireAdmin, (req: Request, res: Response) => {
