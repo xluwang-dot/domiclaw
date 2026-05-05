@@ -213,6 +213,25 @@ export function initDatabase(): void {
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_questions_user ON questions(user_id)"); } catch { /* ok */ }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id)"); } catch { /* ok */ }
 
+  // Seed name_cn/alias for existing subjects (idempotent)
+  const nameCnMap: Record<string, { name_cn: string; alias: string | null }> = {
+    "Mathematics": { name_cn: "数学", alias: null },
+    "Physics": { name_cn: "物理", alias: null },
+    "Chemistry": { name_cn: "化学", alias: null },
+    "Biology": { name_cn: "生物", alias: null },
+    "English": { name_cn: "英语", alias: null },
+    "Chinese": { name_cn: "语文", alias: null },
+    "History": { name_cn: "历史", alias: null },
+    "Geography": { name_cn: "地理", alias: null },
+    "Politics": { name_cn: "政治", alias: "道法" },
+  };
+  const updateSubject = db.prepare(
+    "UPDATE subjects SET name_cn = ?, alias = ? WHERE name = ? AND name_cn IS NULL",
+  );
+  for (const [name, info] of Object.entries(nameCnMap)) {
+    updateSubject.run(info.name_cn, info.alias, name);
+  }
+
   // Init auth module
   initAuthDb(db);
 }
