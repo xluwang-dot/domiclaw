@@ -3,7 +3,7 @@ import path from "path";
 
 import {
   MODEL_NAME, MODEL_BASE_URL, MODEL_API_KEY,
-  GROUPS_DIR, STREAMING_ENABLED, THINKING_MODE,
+  GROUPS_DIR, DATA_DIR, STREAMING_ENABLED, THINKING_MODE,
   MAX_CONTEXT_MESSAGES, CONTEXT_SUMMARIZE_THRESHOLD,
   MAX_RETRIES, RETRY_BASE_DELAY,
   MODEL_NAME_FALLBACK, MODEL_BASE_URL_FALLBACK, MODEL_API_KEY_FALLBACK,
@@ -71,7 +71,7 @@ function buildSystemPrompt(
   userId: number, assistantName: string,
 ): string {
   let instructions: string;
-  const mdPath = path.join(GROUPS_DIR, "main", "CLAUDE.md");
+  const mdPath = path.join(DATA_DIR, "agent", "AGENT.md");
   try {
     const content = fs.readFileSync(mdPath, "utf-8").trim();
     instructions = content.startsWith("# ")
