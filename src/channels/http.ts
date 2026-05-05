@@ -888,9 +888,69 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     res.json({ id, title });
   });
 
+  // Math chapter → module mapping for flat format import
+  const MATH_CHAPTER_TO_MODULE: Record<string, string> = {
+    "有理数": "数与式", "有理数的运算": "数与式", "代数式": "数与式",
+    "整式的加减": "数与式", "整式的乘法": "数与式", "因式分解": "数与式",
+    "分式": "数与式", "二次根式": "数与式", "实数": "数与式",
+    "一元一次方程": "方程与不等式", "二元一次方程组": "方程与不等式",
+    "不等式与不等式组": "方程与不等式", "一元二次方程": "方程与不等式",
+    "平面直角坐标系": "函数与图象", "函数": "函数与图象",
+    "二次函数": "函数与图象", "反比例函数": "函数与图象",
+    "相交线与平行线": "图形与几何", "三角形": "图形与几何",
+    "全等三角形": "图形与几何", "轴对称": "图形与几何",
+    "勾股定理": "图形与几何", "四边形": "图形与几何", "旋转": "图形与几何",
+    "圆": "图形与几何", "相似": "图形与几何", "锐角三角函数": "图形与几何",
+    "视图与投影": "图形与几何",
+    "数据的收集、整理与描述": "统计与概率", "概率初步": "统计与概率",
+  };
+
+  function importKpPath(
+    subjectId: number, path: string[], content: string,
+    tags: string | undefined, levelTypes: string[] | undefined,
+  ): { created: number; reused: number; error?: string } {
+    const defaultLevels = ["root", "module", "chapter", "knowledge_point"];
+    const levels = levelTypes || defaultLevels.slice(0, path.length);
+    if (levels.length !== path.length) {
+      return { created: 0, reused: 0, error: `level_types length (${levels.length}) must match path length (${path.length})` };
+    }
+
+    let parentId: number | null = null;
+    let created = 0;
+    let reused = 0;
+
+    for (let depth = 0; depth < path.length; depth++) {
+      const title = path[depth];
+      const levelType = levels[depth];
+      const parentLevel = depth === 0 ? null : levels[depth - 1];
+      const validation = validateKnowledgePointLevel(parentLevel, levelType);
+      if (!validation.ok) {
+        return { created, reused, error: `at depth ${depth}: ${validation.error}` };
+      }
+
+      const existing = searchKnowledgePoints(title, subjectId);
+      const existingUnderParent = existing.find(
+        (kp) => kp.title === title && kp.parent_id === parentId,
+      );
+
+      if (existingUnderParent) {
+        parentId = existingUnderParent.id;
+        reused++;
+      } else {
+        const nodeId = addKnowledgePoint(
+          subjectId, title, depth === path.length - 1 ? content : `${title} (auto-created)`,
+          parentId, levelType, depth, tags,
+        );
+        parentId = nodeId;
+        created++;
+      }
+    }
+    return { created, reused };
+  }
+
   // Batch import knowledge points
   app.post("/api/admin/knowledge-points/import", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const { subject_id, items } = req.body as { subject_id: unknown; items: unknown };
+    const { subject_id, items, format } = req.body as { subject_id: unknown; items: unknown; format?: string };
     if (!subject_id || typeof subject_id !== "number") {
       res.status(400).json({ error: "subject_id required (number)" });
       return;
@@ -900,11 +960,9 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       return;
     }
 
-    const subject = getSubjectByName(String(subject_id));
-    // subject_id is actually an ID number, not a name
     const subjects = getAllSubjects();
-    const subjectExists = subjects.find((s) => s.id === subject_id);
-    if (!subjectExists) {
+    const subject = subjects.find((s) => s.id === subject_id);
+    if (!subject) {
       res.status(404).json({ error: `Subject ${subject_id} not found` });
       return;
     }
@@ -913,62 +971,80 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     let reused = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i] as Record<string, unknown>;
-      const path = item.path as string[];
-      const content = (item.content as string) || "";
-      const tags = item.tags as string | undefined;
-      const levelTypes = item.level_types as string[] | undefined;
-
-      if (!Array.isArray(path) || path.length === 0 || path.length > 4) {
-        errors.push(`Item ${i}: path must be 1-4 elements, got ${path?.length || 0}`);
-        continue;
+    // Flat format: math-specific, chapter_cn + content_name → auto-expand to 4-level path
+    if (format === "flat") {
+      if (subject.name !== "Mathematics") {
+        res.status(400).json({ error: "flat format is only supported for Mathematics" });
+        return;
       }
+      const subjectName = subject.name_cn || subject.name;
 
-      // Default level_types by position: L1=root, L2=module, L3=chapter, L4=knowledge_point
-      const defaultLevels = ["root", "module", "chapter", "knowledge_point"];
-      const levels = levelTypes || defaultLevels.slice(0, path.length);
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i] as Record<string, unknown>;
+        const chapterCn = (item.chapter_cn as string) || "";
+        const chapterEn = item.chapter_en as string | undefined;
+        const contentName = (item.content_name as string) || "";
+        const content = (item.content as string) || "";
+        const tags = item.tags as string | undefined;
 
-      if (levels.length !== path.length) {
-        errors.push(`Item ${i}: level_types length (${levels.length}) must match path length (${path.length})`);
-        continue;
-      }
-
-      let parentId: number | null = null;
-      let skipRemaining = false;
-
-      for (let depth = 0; depth < path.length; depth++) {
-        if (skipRemaining) break;
-
-        const title = path[depth];
-        const levelType = levels[depth];
-
-        // Validate level compatibility
-        const parentLevel = depth === 0 ? null : levels[depth - 1];
-        const validation = validateKnowledgePointLevel(parentLevel, levelType);
-        if (!validation.ok) {
-          errors.push(`Item ${i} ["${path.join('","')}"] at depth ${depth}: ${validation.error}`);
-          skipRemaining = true;
-          break;
+        if (!chapterCn || !contentName) {
+          errors.push(`Item ${i}: chapter_cn and content_name required`);
+          continue;
         }
 
-        // Check if node already exists under this parent
-        const existing = searchKnowledgePoints(title, subject_id);
-        const existingUnderParent = existing.find(
-          (kp) => kp.title === title && kp.parent_id === parentId,
-        );
-
-        if (existingUnderParent) {
-          parentId = existingUnderParent.id;
-          reused++;
-        } else {
-          const nodeId = addKnowledgePoint(
-            subject_id, title, depth === path.length - 1 ? content : `${title} (auto-created)`,
-            parentId, levelType, depth, tags,
-          );
-          parentId = nodeId;
-          created++;
+        const module = MATH_CHAPTER_TO_MODULE[chapterCn];
+        if (!module) {
+          errors.push(`Item ${i}: 章节"${chapterCn}"不在数学章节映射表中，请检查或使用 path 格式`);
+          continue;
         }
+
+        const path = [subjectName, module, chapterCn, contentName];
+        if (path.length > 4) {
+          errors.push(`Item ${i}: path too deep (${path.length})`);
+          continue;
+        }
+
+        // Build chapter tags with en name
+        const chapterTags = chapterEn ? JSON.stringify({ en: chapterEn }) : undefined;
+
+        const result = importKpPath(subject_id, path, content, tags, ["root", "module", "chapter", "knowledge_point"]);
+        if (result.error) {
+          errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
+        }
+        created += result.created;
+        reused += result.reused;
+
+        // If chapter node was created and has en tag, update it
+        if (chapterEn) {
+          const chapterNodes = searchKnowledgePoints(chapterCn, subject_id);
+          const chapterNode = chapterNodes.find((k) => k.title === chapterCn && k.level_type === "chapter");
+          if (chapterNode) {
+            const existingTags = chapterNode.tags ? JSON.parse(chapterNode.tags) : {};
+            existingTags.en = chapterEn;
+            updateKnowledgePoint(chapterNode.id, undefined, undefined, JSON.stringify(existingTags));
+          }
+        }
+      }
+    } else {
+      // Path format (default): explicit path array
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i] as Record<string, unknown>;
+        const path = item.path as string[];
+        const content = (item.content as string) || "";
+        const tags = item.tags as string | undefined;
+        const levelTypes = item.level_types as string[] | undefined;
+
+        if (!Array.isArray(path) || path.length === 0 || path.length > 4) {
+          errors.push(`Item ${i}: path must be 1-4 elements, got ${path?.length || 0}`);
+          continue;
+        }
+
+        const result = importKpPath(subject_id, path, content, tags, levelTypes);
+        if (result.error) {
+          errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
+        }
+        created += result.created;
+        reused += result.reused;
       }
     }
 

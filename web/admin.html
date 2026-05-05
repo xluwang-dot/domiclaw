@@ -188,16 +188,21 @@ tr:hover{background:rgba(0,0,0,0.03)}
 </tbody></table><br>
 <b>Rules:</b> knowledge_point is leaf (no children). Same parent+title = reuse existing node.<br>
 Path depth &gt; 4 → rejected. Missing intermediate nodes auto-created.<br><br>
-<b>Template:</b>
+<b>Format 1 — path (generic):</b>
 <pre style="background:#2d2d2d;color:#8c8;padding:8px;border-radius:4px;overflow-x:auto;font-size:11px">{
   "subject_id": 1,
+  "format": "path",
   "items": [
-    {
-      "path": ["数学", "数与式", "有理数", "绝对值"],
-      "content": "绝对值是指...",
-      "tags": "基础概念",
-      "level_types": ["root","module","chapter","knowledge_point"]
-    }
+    {"path":["数学","数与式","有理数","绝对值"],"content":"绝对值是指..."}
+  ]
+}</pre>
+<b>Format 2 — flat (math only, auto-expands via chapter mapping):</b>
+<pre style="background:#2d2d2d;color:#8c8;padding:8px;border-radius:4px;overflow-x:auto;font-size:11px">{
+  "subject_id": 1,
+  "format": "flat",
+  "items": [
+    {"chapter_cn":"有理数","chapter_en":"rational_number",
+     "content_name":"有理数的分类","content":"有理数可分为...","tags":"基础概念"}
   ]
 }</pre>
 </div>
