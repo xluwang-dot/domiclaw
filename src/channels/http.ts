@@ -999,13 +999,14 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
   // Graceful shutdown
   const shutdown = () => {
+    logger.info("Shutting down...");
     for (const [, clients] of sseClients) {
       for (const res of clients) {
         try { res.end(); } catch { /* ignore */ }
       }
     }
     sseClients.clear();
-    server.close();
+    server.close(() => process.exit(0));
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
