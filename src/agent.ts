@@ -3,14 +3,14 @@ import path from "path";
 
 import {
   MODEL_NAME, MODEL_BASE_URL, MODEL_API_KEY,
-  GROUPS_DIR, DATA_DIR, STREAMING_ENABLED, THINKING_MODE,
+  DATA_DIR, WORKSPACE_DIR, STREAMING_ENABLED, THINKING_MODE,
   MAX_CONTEXT_MESSAGES, CONTEXT_SUMMARIZE_THRESHOLD,
   MAX_RETRIES, RETRY_BASE_DELAY,
   MODEL_NAME_FALLBACK, MODEL_BASE_URL_FALLBACK, MODEL_API_KEY_FALLBACK,
 } from "./config.js";
 
 import { logger } from "./logger.js";
-import { RegisteredGroup, ToolContext, ToolDefinition } from "./types.js";
+import { ToolContext, ToolDefinition } from "./types.js";
 import { getTool, getAllToolDefinitions } from "./tools/index.js";
 import {
   getRecentMessages, getSessionContext, getWeakAreas,
@@ -28,7 +28,6 @@ const MAX_TOOL_LOOP = 10;
 export interface AgentInput {
   prompt: string;
   sessionId?: string;
-  isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
@@ -308,14 +307,13 @@ async function streamApiCall(
 }
 
 export async function runAgent(
-  group: RegisteredGroup, input: AgentInput,
+  input: AgentInput,
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<AgentOutput> {
-  const groupDir = path.join(GROUPS_DIR, group.folder);
-  fs.mkdirSync(groupDir, { recursive: true });
+  fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
 
   logger.info(
-    { group: group.name, model: MODEL_NAME, streaming: STREAMING_ENABLED,
+    { model: MODEL_NAME, streaming: STREAMING_ENABLED,
       thinkingMode: THINKING_MODE, scheduled: input.isScheduledTask || false,
       userId: input.userId, promptLen: input.prompt.length },
     "Agent starting",
@@ -323,7 +321,7 @@ export async function runAgent(
 
   if (!MODEL_API_KEY) {
     const error = "MODEL_API_KEY not configured";
-    logger.error({ group: group.name }, error);
+    logger.error(error);
     return { status: "error", result: null, thinking: null, error };
   }
 
@@ -333,7 +331,7 @@ export async function runAgent(
     : buildSystemPrompt(input.userId, assistantName);
   const tools = getAllToolDefinitions();
   const toolCtx: ToolContext = {
-    groupFolder: groupDir,
+    workspaceDir: WORKSPACE_DIR,
     userId: input.userId,
   };
 
@@ -427,7 +425,7 @@ export async function runAgent(
       return { status: "error", result: null, thinking: null, error: "Response has no content or tool calls" };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.error({ group: group.name, error: errorMessage }, "Agent error");
+      logger.error({ error: errorMessage }, "Agent error");
       if (onOutput) await onOutput({ status: "error", result: null, thinking: null, error: errorMessage });
       return { status: "error", result: null, thinking: null, error: errorMessage };
     }

@@ -5,7 +5,7 @@ import path from "path";
 import { STORE_DIR } from "./config.js";
 import { logger } from "./logger.js";
 import { initAuthDb } from "./auth.js";
-import { NewMessage, RegisteredGroup } from "./types.js";
+import { NewMessage } from "./types.js";
 
 let db: Database.Database;
 
@@ -23,22 +23,6 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
     CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
-
-    CREATE TABLE IF NOT EXISTS registered_groups (
-      jid TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      folder TEXT NOT NULL UNIQUE,
-      trigger_pattern TEXT NOT NULL,
-      added_at TEXT NOT NULL,
-      container_config TEXT,
-      requires_trigger INTEGER DEFAULT 1,
-      is_main INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS router_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
 
     CREATE TABLE IF NOT EXISTS subjects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -248,48 +232,6 @@ export function getMessagesSince(
   query += ` ORDER BY timestamp ASC LIMIT ?`;
   params.push(limit);
   return db.prepare(query).all(...params) as NewMessage[];
-}
-
-// ============== Registered groups ==============
-
-export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
-  const rows = db.prepare(`
-    SELECT jid, name, folder, trigger_pattern, added_at, requires_trigger, is_main
-    FROM registered_groups
-  `).all() as {
-    jid: string; name: string; folder: string; trigger_pattern: string;
-    added_at: string; requires_trigger: number; is_main: number;
-  }[];
-  const groups: Record<string, RegisteredGroup> = {};
-  for (const row of rows) {
-    groups[row.jid] = {
-      name: row.name, folder: row.folder,
-      trigger: row.trigger_pattern, added_at: row.added_at,
-      requiresTrigger: row.requires_trigger === 1, isMain: row.is_main === 1,
-    };
-  }
-  return groups;
-}
-
-export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO registered_groups
-     (jid, name, folder, trigger_pattern, added_at, requires_trigger, is_main)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(jid, group.name, group.folder, group.trigger, group.added_at,
-    group.requiresTrigger !== false ? 1 : 0, group.isMain ? 1 : 0);
-}
-
-// ============== Router state ==============
-
-export function getRouterState(key: string): string | undefined {
-  const row = db.prepare("SELECT value FROM router_state WHERE key = ?").get(key) as
-    { value: string } | undefined;
-  return row?.value;
-}
-
-export function setRouterState(key: string, value: string): void {
-  db.prepare("INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)").run(key, value);
 }
 
 // ============== Subject queries ==============

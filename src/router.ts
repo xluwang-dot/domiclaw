@@ -6,7 +6,7 @@
  * - 查找对应频道
  */
 import escapeHtml from "escape-html";
-import { Channel, NewMessage } from "./types.js";
+import { NewMessage } from "./types.js";
 
 /**
  * 格式化消息数组为 XML 字符串
@@ -54,16 +54,3 @@ export function formatMessages(messages: NewMessage[]): string {
   return `<messages>\n${lines.join("\n")}\n</messages>`;
 }
 
-/**
- * 查找对应聊天 ID 的频道
- *
- * @param channels 已连接的频道列表
- * @param jid 聊天 ID
- * @returns 匹配的频道（找不到返回 undefined）
- */
-export function findChannel(
-  channels: Channel[],
-  jid: string,
-): Channel | undefined {
-  return channels.find((c) => c.ownsJid(jid));
-}

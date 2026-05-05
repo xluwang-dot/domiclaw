@@ -6,8 +6,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
 
-import { Channel, NewMessage, RegisteredGroup } from "../types.js";
-import type { ChannelOpts } from "./index.js";
+import { NewMessage } from "../types.js";
 import { logger } from "../logger.js";
 import { runAgent, AgentOutput } from "../agent.js";
 import { handleCommand } from "../commands.js";
@@ -27,7 +26,6 @@ import {
   getStudyStats,
   getWrongQuestionsBySubject,
   getDueReviews,
-  setRegisteredGroup,
   upsertSessionContext,
   storeMessage,
   getMessagesSince,
@@ -59,7 +57,6 @@ import {
 } from "../db.js";
 import {
   ASSISTANT_NAME,
-  DEFAULT_TRIGGER,
   WEBCLIENT_PORT,
   MAX_MESSAGES_PER_PROMPT,
   SESSION_SECRET,
@@ -219,19 +216,15 @@ function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-// ---------- Channel factory ----------
+// ---------- Web server ----------
 
-export function WebChannel(opts: ChannelOpts): Channel | null {
-  if (!WEBCLIENT_PORT || WEBCLIENT_PORT === 0) return null;
-
-  const webJid = "web:console";
-  const onMessageCb = opts.onMessage;
-  const onChatMetadataCb = opts.onChatMetadata;
-  const registeredGroups = opts.registeredGroups;
-  const onAgentProcessed = opts.onAgentProcessed;
+export function startWebServer(onAgentProcessed?: (timestamp: string) => void): void {
+  if (!WEBCLIENT_PORT || WEBCLIENT_PORT === 0) {
+    logger.info("WEBCLIENT_PORT not set, skipping web server");
+    return;
+  }
 
   const app = express();
-  let server: http.Server;
 
   // Session store
   const SqliteStore = connectSqlite3(session);
@@ -424,17 +417,7 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
 
     storeMessage(msg, userId);
 
-    // Ensure group exists
-    const groups = registeredGroups();
-    if (!groups[webJid]) {
-      logger.warn("Web group not registered");
-      res.status(202).json({ status: "stored", note: "group not registered" });
-      return;
-    }
-
-    const group = groups[webJid];
-
-    if (!defaultLimiter.check(webJid)) {
+    if (!defaultLimiter.check(String(userId))) {
       pushSse(userId, "done", { status: "error", error: "Rate limited. Please slow down." });
       res.status(429).json({ error: "Too many requests" });
       return;
@@ -452,7 +435,7 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
         is_bot_message: true,
       };
       storeMessage(botMsg, userId);
-      onAgentProcessed?.(webJid, msg.timestamp);
+      onAgentProcessed?.(msg.timestamp);
       pushSse(userId, "done", { status: "success", text: cmdResult });
       res.json({ status: "ok", command: true });
       return;
@@ -474,10 +457,8 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
         : formatMessages([msg]);
 
     runAgent(
-      group,
       {
         prompt,
-        isMain: group.isMain === true,
         assistantName: ASSISTANT_NAME,
         userId,
       },
@@ -503,10 +484,10 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
         }
       },
     ).then(() => {
-      onAgentProcessed?.(webJid, msg.timestamp);
+      onAgentProcessed?.(msg.timestamp);
     }).catch((err) => {
       logger.error({ err }, "Agent background processing error");
-      onAgentProcessed?.(webJid, msg.timestamp);
+      onAgentProcessed?.(msg.timestamp);
       pushSse(userId, "done", {
         status: "error",
         error: err instanceof Error ? err.message : String(err),
@@ -1010,61 +991,22 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
     }
   });
 
-  // ---------- Channel ----------
+  // ---------- Start server ----------
 
-  const channel: Channel = {
-    name: "web",
-    connect: async () => {
-      setRegisteredGroup(webJid, {
-        name: "Web Console",
-        folder: "main",
-        trigger: DEFAULT_TRIGGER,
-        added_at: new Date().toISOString(),
-        requiresTrigger: false,
-        isMain: true,
-      });
+  const server = app.listen(WEBCLIENT_PORT, () => {
+    logger.info({ port: WEBCLIENT_PORT }, "Web server listening (Express)");
+  });
 
-      return new Promise((resolve) => {
-        server = app.listen(WEBCLIENT_PORT, () => {
-          logger.info({ port: WEBCLIENT_PORT }, "Web channel listening (Express)");
-          resolve();
-        });
-      });
-    },
-
-    sendMessage: async (jid: string, text: string) => {
-      // Web channel doesn't send proactively; push via SSE when agent responds
-    },
-
-    sendChunk: async (jid: string, chunk: { thinking?: string; content?: string }) => {
-      // Handled in agent output callback via SSE
-    },
-
-    isConnected: () => server?.listening ?? false,
-
-    ownsJid: (jid: string) => jid.startsWith("web:"),
-
-    disconnect: async () => {
-      for (const [, clients] of sseClients) {
-        for (const res of clients) {
-          try { res.end(); } catch { /* ignore */ }
-        }
+  // Graceful shutdown
+  const shutdown = () => {
+    for (const [, clients] of sseClients) {
+      for (const res of clients) {
+        try { res.end(); } catch { /* ignore */ }
       }
-      sseClients.clear();
-      return new Promise((resolve) => {
-        if (server) {
-          server.close(() => resolve());
-        } else {
-          resolve();
-        }
-      });
-    },
-
-    setTyping: async (jid: string, isTyping: boolean) => {
-      // Push typing indicator to all SSE clients of the active user
-      // Not trivially mappable to userId in Channel interface; skip for now
-    },
+    }
+    sseClients.clear();
+    server.close();
   };
-
-  return channel;
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }

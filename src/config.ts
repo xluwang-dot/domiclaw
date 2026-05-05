@@ -72,12 +72,12 @@ const PROJECT_ROOT = process.cwd();
 export const STORE_DIR = path.resolve(PROJECT_ROOT, "store");
 
 /**
- * 群组工作目录
+ * Agent 工作空间目录
  *
- * 每个群组有独立的文件夹
- * 路径: {项目根}/groups/{groupFolder}
+ * 工具执行时的文件操作目录
+ * 路径: {项目根}/workspace
  */
-export const GROUPS_DIR = path.resolve(PROJECT_ROOT, "groups");
+export const WORKSPACE_DIR = path.resolve(PROJECT_ROOT, "workspace");
 
 /**
  * 数据目录
