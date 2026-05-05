@@ -838,8 +838,11 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       return;
     }
     const id = addSubject(name, (description as string) || null, (name_cn as string) || null, (alias as string) || null);
-    // Auto-create root knowledge point for this subject
-    addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0, undefined);
+    // Auto-create root knowledge point for this subject (skip if already exists)
+    const existingRoot = searchKnowledgePoints(name, id);
+    if (!existingRoot.find((k) => k.level_type === "root" && !k.parent_id)) {
+      addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0, undefined);
+    }
     res.json({ id, name });
   });
 
@@ -971,8 +974,12 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     let reused = 0;
     const errors: string[] = [];
 
+    // Auto-detect format from first item if not explicitly specified
+    const firstItem = items[0] as Record<string, unknown>;
+    const detectedFormat = format || (firstItem.chapter_cn && firstItem.content_name ? "flat" : "path");
+
     // Flat format: math-specific, chapter_cn + content_name → auto-expand to 4-level path
-    if (format === "flat") {
+    if (detectedFormat === "flat") {
       if (subject.name !== "Mathematics") {
         res.status(400).json({ error: "flat format is only supported for Mathematics" });
         return;

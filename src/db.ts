@@ -227,13 +227,18 @@ export function validateKnowledgePointLevel(
 
 function ensureRootKnowledgePoints(database: Database.Database): void {
   const subjects = database.prepare("SELECT id, name FROM subjects").all() as { id: number; name: string }[];
+  const exists = database.prepare(
+    "SELECT 1 FROM knowledge_points WHERE subject_id = ? AND parent_id IS NULL AND level_type = 'root'",
+  );
   const insert = database.prepare(
-    `INSERT OR IGNORE INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at)
+    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at)
      VALUES (?, NULL, ?, ?, 'root', 0, ?)`,
   );
   const now = new Date().toISOString();
   for (const s of subjects) {
-    insert.run(s.id, s.name, `${s.name} 学科根节点`, now);
+    if (!exists.get(s.id)) {
+      insert.run(s.id, s.name, `${s.name} 学科根节点`, now);
+    }
   }
 }
 
