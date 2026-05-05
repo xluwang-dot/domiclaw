@@ -62,7 +62,7 @@ registerTool("analyze_wrong_answer", {
     const correctAnswer = args.correct_answer as string;
     const relatedKpIds = args.related_kp_ids as number[];
     const sessionId = args.session_id as number | undefined;
-    const questionId = (args.question_id ?? ctx.chatJid) as number | undefined;
+    const questionId = args.question_id as number | undefined;
     const userId = (args.user_id ?? ctx.userId) as number;
 
     if (!relatedKpIds || relatedKpIds.length === 0) {

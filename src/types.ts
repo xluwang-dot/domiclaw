@@ -33,10 +33,8 @@ export interface RegisteredGroup {
  * 表示收到的聊天消息
  */
 export interface NewMessage {
-  /** 消息 ID（频道特定）*/
+  /** 消息 ID */
   id: string;
-  /** 聊天 ID（频道:jid 格式）*/
-  chat_jid: string;
   /** 发送者 ID */
   sender: string;
   /** 发送者显示名称 */
@@ -127,7 +125,6 @@ export interface ToolDefinition {
 
 export interface ToolContext {
   groupFolder: string;
-  chatJid: string;
   userId: number;
 }
 

@@ -28,7 +28,6 @@ const MAX_TOOL_LOOP = 10;
 export interface AgentInput {
   prompt: string;
   sessionId?: string;
-  chatJid: string;
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
@@ -335,7 +334,6 @@ export async function runAgent(
   const tools = getAllToolDefinitions();
   const toolCtx: ToolContext = {
     groupFolder: groupDir,
-    chatJid: input.chatJid,
     userId: input.userId,
   };
 

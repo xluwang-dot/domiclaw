@@ -30,7 +30,6 @@ import {
   setRegisteredGroup,
   upsertSessionContext,
   storeMessage,
-  storeChatMetadata,
   getMessagesSince,
   addSubject,
   updateSubject,
@@ -40,7 +39,6 @@ import {
   updateKnowledgePoint,
   deleteKnowledgePoint,
   addQuestion,
-  getAllQuestions,
   updateQuestion,
   deleteQuestion,
   addUserQuestion,
@@ -417,7 +415,6 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
 
     const msg: NewMessage = {
       id: `web-${Date.now()}`,
-      chat_jid: webJid,
       sender: "web-user",
       sender_name: "Student",
       content: text,
@@ -426,7 +423,6 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
     };
 
     storeMessage(msg, userId);
-    storeChatMetadata(webJid, msg.timestamp, "Web Console", "web", false);
 
     // Ensure group exists
     const groups = registeredGroups();
@@ -445,14 +441,10 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
     }
 
     // Command check
-    const cmdResult = handleCommand(text, {
-      chatJid: webJid,
-      userId,
-    });
+    const cmdResult = handleCommand(text, { userId });
     if (cmdResult !== null) {
       const botMsg: NewMessage = {
         id: `web-cmd-${Date.now()}`,
-        chat_jid: webJid,
         sender: ASSISTANT_NAME,
         sender_name: ASSISTANT_NAME,
         content: cmdResult,
@@ -485,7 +477,6 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
       group,
       {
         prompt,
-        chatJid: webJid,
         isMain: group.isMain === true,
         assistantName: ASSISTANT_NAME,
         userId,
@@ -499,7 +490,6 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
 
           const botMsg: NewMessage = {
             id: `web-bot-${Date.now()}`,
-            chat_jid: webJid,
             sender: ASSISTANT_NAME,
             sender_name: ASSISTANT_NAME,
             content: output.result,
@@ -864,11 +854,6 @@ export function WebChannel(opts: ChannelOpts): Channel | null {
   });
 
   // Questions admin
-  app.get("/api/admin/questions", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const status = req.query.status as string | undefined;
-    res.json(getAllQuestions(status as string | undefined));
-  });
-
   app.post("/api/admin/questions", requireAuth, requireAdmin, (req: Request, res: Response) => {
     const q = req.body as Record<string, unknown>;
     const id = addQuestion(

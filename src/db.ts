@@ -11,26 +11,15 @@ let db: Database.Database;
 
 function createSchema(database: Database.Database): void {
   database.exec(`
-    CREATE TABLE IF NOT EXISTS chats (
-      jid TEXT PRIMARY KEY,
-      name TEXT,
-      last_message_time TEXT,
-      channel TEXT,
-      is_group INTEGER DEFAULT 0
-    );
-
     CREATE TABLE IF NOT EXISTS messages (
-      id TEXT,
-      chat_jid TEXT,
+      id TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
       sender TEXT,
       sender_name TEXT,
       content TEXT,
       timestamp TEXT,
       is_from_me INTEGER,
-      is_bot_message INTEGER DEFAULT 0,
-      PRIMARY KEY (id, chat_jid),
-      FOREIGN KEY (chat_jid) REFERENCES chats(jid)
+      is_bot_message INTEGER DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
     CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
@@ -148,8 +137,7 @@ function createSchema(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      chat_jid TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
       prompt TEXT NOT NULL,
       schedule_type TEXT NOT NULL,
       schedule_value TEXT NOT NULL,
@@ -209,32 +197,13 @@ function createSchema(database: Database.Database): void {
   }
 }
 
-// Migration: drop old tables that need user_id (safe in dev phase)
-function migrateSchema(database: Database.Database): void {
-  // Enable foreign keys so DROPs work regardless of order
-  database.pragma("foreign_keys = OFF");
-  database.exec(`
-    DROP TABLE IF EXISTS messages;
-    DROP TABLE IF EXISTS quiz_answers;
-    DROP TABLE IF EXISTS quiz_sessions;
-    DROP TABLE IF EXISTS wrong_questions;
-    DROP TABLE IF EXISTS study_plans;
-    DROP TABLE IF EXISTS scheduled_tasks;
-    DROP TABLE IF EXISTS session_context;
-  `);
-  database.pragma("foreign_keys = ON");
-}
-
 export function initDatabase(): void {
   const dbPath = path.join(STORE_DIR, "messages.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);
 
-  // Drop old tables that need user_id migration
-  migrateSchema(db);
-
-  // Create all tables (including those dropped for migration)
+  // Create all tables
   createSchema(db);
 
   // Incremental migrations: add columns to existing tables (idempotent via try/catch)
@@ -257,39 +226,14 @@ export function initDatabase(): void {
 
 export function storeMessage(msg: NewMessage, userId: number): void {
   db.prepare(
-    `INSERT OR REPLACE INTO chats (jid, last_message_time) VALUES (?, ?)`,
-  ).run(msg.chat_jid, msg.timestamp);
-
-  db.prepare(
     `INSERT OR REPLACE INTO messages
-     (id, chat_jid, user_id, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, user_id, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    msg.id, msg.chat_jid, userId, msg.sender, msg.sender_name,
+    msg.id, userId, msg.sender, msg.sender_name,
     msg.content, msg.timestamp,
     msg.is_from_me ? 1 : 0, msg.is_bot_message ? 1 : 0,
   );
-}
-
-export function storeChatMetadata(
-  chatJid: string, timestamp: string,
-  name?: string, channel?: string, isGroup?: boolean,
-): void {
-  const ch = channel ?? null;
-  const group = isGroup === undefined ? null : isGroup ? 1 : 0;
-  if (name) {
-    db.prepare(
-      `UPDATE chats SET name = ?, last_message_time = COALESCE(
-        (SELECT last_message_time FROM chats WHERE jid = ?), ?)
-       WHERE jid = ? OR jid IS NULL`,
-    ).run(name, chatJid, timestamp, chatJid);
-  }
-}
-
-export function getAllChats(): { jid: string; name?: string }[] {
-  return db.prepare("SELECT jid, name FROM chats").all() as {
-    jid: string; name?: string;
-  }[];
 }
 
 export function getMessagesSince(
@@ -297,7 +241,7 @@ export function getMessagesSince(
   assistantName: string, limit: number,
 ): NewMessage[] {
   let query = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
+    SELECT id, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages WHERE user_id = ? AND timestamp > ?
   `;
   const params: (number | string)[] = [userId, afterTimestamp];
@@ -550,20 +494,6 @@ export function getQuestionById(id: number): QuestionRow | undefined {
   ).get(id) as QuestionRow | undefined;
 }
 
-export function getAllQuestions(status?: string): QuestionRow[] {
-  if (status) {
-    return db.prepare(
-      `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
-              q.options, q.knowledge_point_id, q.status, q.exam_paper_id
-       FROM questions q WHERE q.status = ? ORDER BY q.id DESC`,
-    ).all(status) as QuestionRow[];
-  }
-  return db.prepare(
-    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
-            q.options, q.knowledge_point_id, q.status, q.exam_paper_id
-     FROM questions q ORDER BY q.id DESC`,
-  ).all() as QuestionRow[];
-}
 
 export function updateQuestion(id: number, fields: Record<string, unknown>): boolean {
   const sets: string[] = [];
@@ -1178,7 +1108,7 @@ export function getRecentMessages(
   userId: number, limit: number, excludeBot?: boolean,
 ): NewMessage[] {
   let query = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message
+    SELECT id, sender, sender_name, content, timestamp, is_from_me, is_bot_message
     FROM messages WHERE user_id = ?
   `;
   if (excludeBot) query += " AND is_bot_message = 0";
@@ -1364,7 +1294,7 @@ export function getKpMasteryStats(userId: number): {
 // ============== Scheduled task queries ==============
 
 export interface ScheduledTaskRow {
-  id: string; user_id: string; chat_jid: string;
+  id: string; user_id: number;
   prompt: string; schedule_type: string; schedule_value: string;
   next_run: string | null; last_run: string | null;
   last_result: string | null; status: string; created_at: string;
@@ -1390,18 +1320,18 @@ function computeNextRun(type: string, value: string): string {
 export function getDueScheduledTasks(userId: number): ScheduledTaskRow[] {
   const now = new Date().toISOString();
   return db.prepare(
-    `SELECT id, user_id, chat_jid, prompt, schedule_type, schedule_value,
+    `SELECT id, user_id, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
      FROM scheduled_tasks
      WHERE user_id = ? AND next_run <= ? AND status = 'active'
      ORDER BY next_run ASC`,
-  ).all(String(userId), now) as ScheduledTaskRow[];
+  ).all(userId, now) as ScheduledTaskRow[];
 }
 
 export function getAllDueScheduledTasks(): ScheduledTaskRow[] {
   const now = new Date().toISOString();
   return db.prepare(
-    `SELECT id, user_id, chat_jid, prompt, schedule_type, schedule_value,
+    `SELECT id, user_id, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
      FROM scheduled_tasks
      WHERE next_run <= ? AND status = 'active'
@@ -1410,15 +1340,15 @@ export function getAllDueScheduledTasks(): ScheduledTaskRow[] {
 }
 
 export function createScheduledTask(
-  userId: number, chatJid: string, prompt: string,
+  userId: number, prompt: string,
   scheduleType: string, scheduleValue: string,
 ): string {
   const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const nextRun = computeNextRun(scheduleType, scheduleValue);
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, user_id, chat_jid, prompt, schedule_type, schedule_value, next_run, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-  ).run(id, String(userId), chatJid, prompt, scheduleType, scheduleValue, nextRun, new Date().toISOString());
+    `INSERT INTO scheduled_tasks (id, user_id, prompt, schedule_type, schedule_value, next_run, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+  ).run(id, userId, prompt, scheduleType, scheduleValue, nextRun, new Date().toISOString());
   return id;
 }
 
@@ -1435,9 +1365,9 @@ export function cancelScheduledTask(id: string): boolean {
 
 export function getScheduledTasksByUser(userId: number): ScheduledTaskRow[] {
   return db.prepare(
-    `SELECT id, user_id, chat_jid, prompt, schedule_type, schedule_value,
+    `SELECT id, user_id, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
      FROM scheduled_tasks WHERE user_id = ? AND status = 'active'
      ORDER BY next_run ASC`,
-  ).all(String(userId)) as ScheduledTaskRow[];
+  ).all(userId) as ScheduledTaskRow[];
 }

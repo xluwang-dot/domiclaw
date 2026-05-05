@@ -28,7 +28,6 @@ registerTool("schedule_daily_review", {
 
     const taskId = createScheduledTask(
       ctx.userId,
-      "web:console",
       "It's time for your daily review. Check due spaced repetition questions (get_due_reviews) and study plan progress (get_study_progress). Offer encouragement.",
       "daily",
       time,

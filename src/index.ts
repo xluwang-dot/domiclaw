@@ -63,10 +63,10 @@ async function processScheduledTasks(): Promise<void> {
   try {
     const dueTasks = getAllDueScheduledTasks();
     for (const task of dueTasks) {
-      const userId = parseInt(task.user_id, 10);
+      const userId = task.user_id;
       if (!userId) continue;
 
-      const group = registeredGroups[task.chat_jid];
+      const group = Object.values(registeredGroups)[0];
       if (!group) continue;
 
       logger.info(
@@ -76,7 +76,6 @@ async function processScheduledTasks(): Promise<void> {
 
       const taskPrompt = formatMessages([{
         id: `scheduled-${task.id}`,
-        chat_jid: task.chat_jid,
         sender: "system",
         sender_name: "Scheduler",
         content: task.prompt,
@@ -87,7 +86,6 @@ async function processScheduledTasks(): Promise<void> {
         group,
         {
           prompt: taskPrompt,
-          chatJid: task.chat_jid,
           isMain: group.isMain === true,
           isScheduledTask: true,
           assistantName: ASSISTANT_NAME,
@@ -100,7 +98,6 @@ async function processScheduledTasks(): Promise<void> {
           } else if (result.status === "success" && result.result) {
             storeMessage({
               id: `sched-bot-${Date.now()}`,
-              chat_jid: task.chat_jid,
               sender: ASSISTANT_NAME,
               sender_name: ASSISTANT_NAME,
               content: result.result,

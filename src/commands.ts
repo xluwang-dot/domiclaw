@@ -13,7 +13,6 @@ import {
 } from "./db.js";
 
 interface CommandCtx {
-  chatJid: string;
   userId: number;
 }
 
