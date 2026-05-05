@@ -299,7 +299,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     dir: ".",
   }) as session.Store;
 
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
   app.use(
     session({
       store: sessionStore,
