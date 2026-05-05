@@ -15,13 +15,13 @@ export class RateLimiter {
     this.windowMs = windowMs ?? RATE_LIMIT_WINDOW;
   }
 
-  check(jid: string): boolean {
+  check(key: string): boolean {
     const now = Date.now();
-    let bucket = this.buckets.get(jid);
+    let bucket = this.buckets.get(key);
 
     if (!bucket) {
       bucket = { tokens: this.maxTokens, lastRefill: now };
-      this.buckets.set(jid, bucket);
+      this.buckets.set(key, bucket);
     }
 
     // Refill tokens based on elapsed time
@@ -40,17 +40,17 @@ export class RateLimiter {
     return false;
   }
 
-  remaining(jid: string): number {
-    const bucket = this.buckets.get(jid);
+  remaining(key: string): number {
+    const bucket = this.buckets.get(key);
     if (!bucket) return this.maxTokens;
     return Math.floor(bucket.tokens);
   }
 
   private prune(): void {
     const now = Date.now();
-    for (const [jid, bucket] of this.buckets) {
+    for (const [key, bucket] of this.buckets) {
       if (now - bucket.lastRefill > this.windowMs * 2) {
-        this.buckets.delete(jid);
+        this.buckets.delete(key);
       }
     }
   }
