@@ -1,0 +1,794 @@
+<template>
+  <div class="canvas-app">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <button @click="autoLayout('grid')">网格布局</button>
+      <button @click="autoLayout('tree')">树形布局</button>
+      <button @click="addRandomNode">➕ 添加节点</button>
+      <button @click="deleteSelected" :disabled="!selectedNodeId && !selectedEdgeId">🗑️ 删除选中</button>
+      <div class="divider"></div>
+      <button @click="undo" :disabled="!canUndo">↩️ 撤销</button>
+      <button @click="redo" :disabled="!canRedo">↪️ 重做</button>
+      <div class="divider"></div>
+      <label>连线样式：</label>
+      <select v-model="edgeStyle">
+        <option value="bezier">贝塞尔曲线</option>
+        <option value="polyline">折线</option>
+      </select>
+      <span class="info">框选: 拖拽空白区 | 平移: Ctrl+拖拽</span>
+      <span class="info">Scale: {{ scale.toFixed(2) }}</span>
+    </div>
+
+    <!-- 画布容器 -->
+    <div
+      ref="canvasRef"
+      class="canvas-container"
+      @wheel.prevent="handleWheel"
+      @mousedown="handleCanvasMouseDown"
+    >
+      <!-- 框选矩形 -->
+      <div
+        v-if="isMarqueeSelecting"
+        class="marquee-box"
+        :style="{
+          left: marqueeRect.left + 'px',
+          top: marqueeRect.top + 'px',
+          width: marqueeRect.width + 'px',
+          height: marqueeRect.height + 'px',
+        }"
+      ></div>
+
+      <div
+        class="canvas-content"
+        :style="{
+          transform: `translate(${translateX}px, ${translateY}px) scale(${scale})`,
+          transformOrigin: '0 0',
+        }"
+      >
+        <!-- 背景网格 -->
+        <div class="grid-bg"></div>
+
+        <!-- 连线层 (SVG) -->
+        <svg class="edges-svg" :width="svgWidth" :height="svgHeight">
+          <defs>
+            <marker
+              id="arrowhead"
+              markerWidth="10"
+              markerHeight="7"
+              refX="10"
+              refY="3.5"
+              orient="auto"
+            >
+              <polygon points="0 0, 10 3.5, 0 7" fill="#999" />
+            </marker>
+          </defs>
+          <g>
+            <template v-for="edge in edges" :key="edge.id">
+              <path
+                :d="getEdgePath(edge)"
+                stroke="#999"
+                stroke-width="2"
+                fill="none"
+                marker-end="url(#arrowhead)"
+                @click.stop="selectEdge(edge.id)"
+                :style="{ stroke: selectedEdgeId === edge.id ? '#0a84ff' : '#999' }"
+              />
+              <text
+                v-if="edge.label"
+                :x="getEdgeLabelPos(edge).x"
+                :y="getEdgeLabelPos(edge).y"
+                fill="#333"
+                font-size="12"
+                text-anchor="middle"
+                dominant-baseline="middle"
+                style="pointer-events: none; user-select: none;"
+              >
+                {{ edge.label }}
+              </text>
+            </template>
+          </g>
+        </svg>
+
+        <!-- 节点卡片 -->
+        <div
+          v-for="node in nodes"
+          :key="node.id"
+          class="node-card"
+          :style="{
+            left: node.x + 'px',
+            top: node.y + 'px',
+            borderColor: selectedNodeId === node.id ? '#0a84ff' : '#e0e0e0',
+          }"
+          @mousedown.stop="handleNodeMouseDown($event, node)"
+          @click.stop="selectNode(node.id)"
+        >
+          <div class="node-header">
+            <span>📦 {{ node.label }}</span>
+            <span class="node-actions">
+              <button @click.stop="addEdgeFrom(node.id)" title="从此节点添加连线">🔗</button>
+            </span>
+          </div>
+          <div class="node-body">
+            <small>x: {{ node.x.toFixed(0) }}, y: {{ node.y.toFixed(0) }}</small>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 属性面板 (简化) -->
+    <div v-if="selectedNode || selectedEdge" class="property-panel">
+      <h4>{{ selectedNode ? '节点属性' : '连线属性' }}</h4>
+      <div v-if="selectedNode">
+        <label>标签: <input v-model="selectedNode.label" @input="pushSnapshot" /></label>
+      </div>
+      <div v-if="selectedEdge">
+        <label>标签: <input v-model="selectedEdge.label" placeholder="可选" @input="pushSnapshot" /></label>
+        <button @click="editEdgeLabel(selectedEdge)">编辑标签</button>
+      </div>
+      <button @click="deselectAll">关闭</button>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch } from 'vue';
+
+// ---------- 类型定义 ----------
+interface Node {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+}
+
+interface Edge {
+  id: string;
+  fromId: string;
+  toId: string;
+  label?: string;
+}
+
+interface Snapshot {
+  nodes: Node[];
+  edges: Edge[];
+}
+
+// ---------- 画布变换状态 ----------
+const scale = ref(1);
+const translateX = ref(0);
+const translateY = ref(0);
+
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 3;
+
+// ---------- 节点与连线数据 ----------
+const nodes = ref<Node[]>([
+  { id: '1', x: 200, y: 150, label: '剧本-第一幕' },
+  { id: '2', x: 450, y: 80, label: '分镜-01' },
+  { id: '3', x: 450, y: 220, label: '分镜-02' },
+  { id: '4', x: 700, y: 150, label: '资产-人物A' },
+]);
+
+const edges = ref<Edge[]>([
+  { id: 'e1', fromId: '1', toId: '2', label: '细化' },
+  { id: 'e2', fromId: '1', toId: '3', label: '细化' },
+  { id: 'e3', fromId: '2', toId: '4', label: '使用' },
+  { id: 'e4', fromId: '3', toId: '4', label: '使用' },
+]);
+
+let nextId = 100;
+function genId(prefix = 'node') {
+  return `${prefix}-${Date.now()}-${nextId++}`;
+}
+
+// ---------- 连线样式 ----------
+const edgeStyle = ref<'bezier' | 'polyline'>('bezier');
+
+// ---------- 选中状态 ----------
+const selectedNodeId = ref<string | null>(null);
+const selectedEdgeId = ref<string | null>(null);
+
+const selectedNode = computed(() => nodes.value.find(n => n.id === selectedNodeId.value) || null);
+const selectedEdge = computed(() => edges.value.find(e => e.id === selectedEdgeId.value) || null);
+
+function selectNode(id: string) {
+  selectedNodeId.value = id;
+  selectedEdgeId.value = null;
+}
+
+function selectEdge(id: string) {
+  selectedEdgeId.value = id;
+  selectedNodeId.value = null;
+}
+
+function deselectAll() {
+  selectedNodeId.value = null;
+  selectedEdgeId.value = null;
+}
+
+// 连线模式
+const pendingEdgeFrom = ref<string | null>(null);
+function addEdgeFrom(nodeId: string) {
+  if (pendingEdgeFrom.value === null) {
+    pendingEdgeFrom.value = nodeId;
+    alert('请点击另一个节点作为终点');
+  } else {
+    const fromId = pendingEdgeFrom.value;
+    const toId = nodeId;
+    if (fromId !== toId) {
+      const exists = edges.value.some(e => 
+        (e.fromId === fromId && e.toId === toId) || 
+        (e.fromId === toId && e.toId === fromId)
+      );
+      if (!exists) {
+        edges.value.push({
+          id: genId('edge'),
+          fromId,
+          toId,
+        });
+        pushSnapshot();
+      }
+    }
+    pendingEdgeFrom.value = null;
+  }
+}
+
+// 编辑连线标签（简化使用 prompt）
+function editEdgeLabel(edge: Edge) {
+  const newLabel = window.prompt('输入连线标签', edge.label || '');
+  if (newLabel !== null) {
+    edge.label = newLabel || undefined;
+    pushSnapshot();
+  }
+}
+
+function addRandomNode() {
+  const newId = genId('node');
+  nodes.value.push({
+    id: newId,
+    x: 300 + Math.random() * 400,
+    y: 100 + Math.random() * 300,
+    label: `新节点-${nodes.value.length + 1}`,
+  });
+  pushSnapshot();
+}
+
+function deleteSelected() {
+  if (selectedNodeId.value) {
+    const id = selectedNodeId.value;
+    nodes.value = nodes.value.filter(n => n.id !== id);
+    edges.value = edges.value.filter(e => e.fromId !== id && e.toId !== id);
+    deselectAll();
+    pushSnapshot();
+  } else if (selectedEdgeId.value) {
+    edges.value = edges.value.filter(e => e.id !== selectedEdgeId.value);
+    deselectAll();
+    pushSnapshot();
+  }
+}
+
+// ---------- 拖拽状态 ----------
+const canvasRef = ref<HTMLElement | null>(null);
+
+// 画布拖拽
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
+let translateStart = { x: 0, y: 0 };
+
+// 节点拖拽
+let draggingNode: Node | null = null;
+let nodeDragOffset = { x: 0, y: 0 };
+let nodeDragStarted = false;
+
+// 框选
+const isMarqueeSelecting = ref(false);
+const marqueeRect = ref({ left: 0, top: 0, width: 0, height: 0 });
+let marqueeStart = { x: 0, y: 0 };
+
+// ---------- 坐标转换 ----------
+function screenToCanvas(screenX: number, screenY: number): { x: number; y: number } {
+  return {
+    x: (screenX - translateX.value) / scale.value,
+    y: (screenY - translateY.value) / scale.value,
+  };
+}
+
+// ---------- SVG 尺寸 ----------
+const svgWidth = ref(5000);
+const svgHeight = ref(5000);
+
+// 计算连线路径
+function getEdgePath(edge: Edge): string {
+  const fromNode = nodes.value.find(n => n.id === edge.fromId);
+  const toNode = nodes.value.find(n => n.id === edge.toId);
+  if (!fromNode || !toNode) return '';
+
+  const fromX = fromNode.x + 90;
+  const fromY = fromNode.y + 40;
+  const toX = toNode.x + 90;
+  const toY = toNode.y + 40;
+
+  if (edgeStyle.value === 'bezier') {
+    const dx = Math.abs(fromX - toX) * 0.5;
+    const cp1x = fromX + dx;
+    const cp1y = fromY;
+    const cp2x = toX - dx;
+    const cp2y = toY;
+    return `M ${fromX} ${fromY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${toX} ${toY}`;
+  } else {
+    // 折线：简单水平-垂直-水平
+    const midX = (fromX + toX) / 2;
+    return `M ${fromX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toX} ${toY}`;
+  }
+}
+
+// 计算标签位置（路径中点）
+function getEdgeLabelPos(edge: Edge): { x: number; y: number } {
+  const fromNode = nodes.value.find(n => n.id === edge.fromId);
+  const toNode = nodes.value.find(n => n.id === edge.toId);
+  if (!fromNode || !toNode) return { x: 0, y: 0 };
+
+  const fromX = fromNode.x + 90;
+  const fromY = fromNode.y + 40;
+  const toX = toNode.x + 90;
+  const toY = toNode.y + 40;
+
+  if (edgeStyle.value === 'bezier') {
+    const dx = Math.abs(fromX - toX) * 0.5;
+    const cp1x = fromX + dx;
+    const cp1y = fromY;
+    const cp2x = toX - dx;
+    const cp2y = toY;
+    // 贝塞尔曲线中点近似为控制点连线的中点
+    const mid1x = (fromX + cp1x) / 2;
+    const mid1y = (fromY + cp1y) / 2;
+    const mid2x = (cp1x + cp2x) / 2;
+    const mid2y = (cp1y + cp2y) / 2;
+    const mid3x = (cp2x + toX) / 2;
+    const mid3y = (cp2y + toY) / 2;
+    const mid12x = (mid1x + mid2x) / 2;
+    const mid12y = (mid1y + mid2y) / 2;
+    const mid23x = (mid2x + mid3x) / 2;
+    const mid23y = (mid2y + mid3y) / 2;
+    return { x: (mid12x + mid23x) / 2, y: (mid12y + mid23y) / 2 };
+  } else {
+    const midX = (fromX + toX) / 2;
+    const midY = (fromY + toY) / 2;
+    return { x: midX, y: midY };
+  }
+}
+
+// ---------- 滚轮缩放 ----------
+function handleWheel(e: WheelEvent) {
+  if (!e.ctrlKey && !e.metaKey) return;
+
+  const delta = -e.deltaY * 0.001;
+  const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale.value * (1 + delta)));
+
+  const rect = canvasRef.value!.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+
+  const canvasPos = screenToCanvas(mouseX, mouseY);
+  scale.value = newScale;
+  translateX.value = mouseX - canvasPos.x * scale.value;
+  translateY.value = mouseY - canvasPos.y * scale.value;
+}
+
+// ---------- 画布鼠标事件（处理平移和框选）----------
+function handleCanvasMouseDown(e: MouseEvent) {
+  const target = e.target as HTMLElement;
+  if (target.closest('.node-card') || target.closest('.edges-svg')) return;
+
+  const rect = canvasRef.value!.getBoundingClientRect();
+  const startX = e.clientX - rect.left;
+  const startY = e.clientY - rect.top;
+
+  // 按下 Ctrl 为平移模式，否则为框选模式
+  if (e.ctrlKey) {
+    isPanning = true;
+    panStart = { x: e.clientX, y: e.clientY };
+    translateStart = { x: translateX.value, y: translateY.value };
+    window.addEventListener('mousemove', onPanMove);
+    window.addEventListener('mouseup', onPanUp);
+  } else {
+    isMarqueeSelecting.value = true;
+    marqueeStart = { x: startX, y: startY };
+    marqueeRect.value = { left: startX, top: startY, width: 0, height: 0 };
+    window.addEventListener('mousemove', onMarqueeMove);
+    window.addEventListener('mouseup', onMarqueeUp);
+  }
+}
+
+function onPanMove(e: MouseEvent) {
+  if (!isPanning) return;
+  const dx = e.clientX - panStart.x;
+  const dy = e.clientY - panStart.y;
+  translateX.value = translateStart.x + dx;
+  translateY.value = translateStart.y + dy;
+}
+
+function onPanUp() {
+  isPanning = false;
+  window.removeEventListener('mousemove', onPanMove);
+  window.removeEventListener('mouseup', onPanUp);
+}
+
+function onMarqueeMove(e: MouseEvent) {
+  if (!isMarqueeSelecting.value) return;
+  const rect = canvasRef.value!.getBoundingClientRect();
+  const currentX = e.clientX - rect.left;
+  const currentY = e.clientY - rect.top;
+
+  const left = Math.min(marqueeStart.x, currentX);
+  const top = Math.min(marqueeStart.y, currentY);
+  const width = Math.abs(currentX - marqueeStart.x);
+  const height = Math.abs(currentY - marqueeStart.y);
+
+  marqueeRect.value = { left, top, width, height };
+}
+
+function onMarqueeUp() {
+  if (!isMarqueeSelecting.value) return;
+  isMarqueeSelecting.value = false;
+  window.removeEventListener('mousemove', onMarqueeMove);
+  window.removeEventListener('mouseup', onMarqueeUp);
+
+  // 计算框选的画布区域
+  const rect = canvasRef.value!.getBoundingClientRect();
+  const screenRect = {
+    left: marqueeRect.value.left,
+    top: marqueeRect.value.top,
+    right: marqueeRect.value.left + marqueeRect.value.width,
+    bottom: marqueeRect.value.top + marqueeRect.value.height,
+  };
+
+  // 转换为画布坐标
+  const canvasTopLeft = screenToCanvas(screenRect.left, screenRect.top);
+  const canvasBottomRight = screenToCanvas(screenRect.right, screenRect.bottom);
+  const canvasRect = {
+    left: canvasTopLeft.x,
+    top: canvasTopLeft.y,
+    right: canvasBottomRight.x,
+    bottom: canvasBottomRight.y,
+  };
+
+  // 选中矩形内的节点
+  const selected = nodes.value.filter(node => {
+    const nodeRight = node.x + 180;
+    const nodeBottom = node.y + 80; // 近似高度
+    return !(nodeRight < canvasRect.left || node.x > canvasRect.right || nodeBottom < canvasRect.top || node.y > canvasRect.bottom);
+  });
+
+  if (selected.length > 0) {
+    // 简单处理：高亮第一个节点
+    selectNode(selected[0].id);
+  }
+
+  marqueeRect.value = { left: 0, top: 0, width: 0, height: 0 };
+}
+
+// ---------- 节点拖拽 ----------
+function handleNodeMouseDown(e: MouseEvent, node: Node) {
+  draggingNode = node;
+  nodeDragStarted = false;
+
+  const rect = canvasRef.value!.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+  const canvasPos = screenToCanvas(mouseX, mouseY);
+  nodeDragOffset.x = canvasPos.x - node.x;
+  nodeDragOffset.y = canvasPos.y - node.y;
+
+  window.addEventListener('mousemove', onNodeDrag);
+  window.addEventListener('mouseup', onNodeDragEnd);
+}
+
+function onNodeDrag(e: MouseEvent) {
+  if (!draggingNode) return;
+  nodeDragStarted = true;
+
+  const rect = canvasRef.value!.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+  const canvasPos = screenToCanvas(mouseX, mouseY);
+
+  draggingNode.x = canvasPos.x - nodeDragOffset.x;
+  draggingNode.y = canvasPos.y - nodeDragOffset.y;
+}
+
+function onNodeDragEnd() {
+  if (draggingNode && nodeDragStarted) {
+    pushSnapshot();
+  }
+  draggingNode = null;
+  nodeDragStarted = false;
+  window.removeEventListener('mousemove', onNodeDrag);
+  window.removeEventListener('mouseup', onNodeDragEnd);
+}
+
+// ---------- 自动布局 ----------
+function autoLayout(type: 'grid' | 'tree') {
+  if (type === 'grid') {
+    const cols = 2;
+    nodes.value.forEach((node, index) => {
+      const row = Math.floor(index / cols);
+      const col = index % cols;
+      node.x = 200 + col * 250;
+      node.y = 150 + row * 150;
+    });
+  } else {
+    const root = nodes.value.find(n => n.id === '1');
+    const children = nodes.value.filter(n => n.id !== '1');
+    if (root) {
+      root.x = 200;
+      root.y = 150;
+      children.forEach((child, idx) => {
+        child.x = 450;
+        child.y = 80 + idx * 140;
+      });
+    }
+  }
+  pushSnapshot();
+}
+
+// ---------- 撤销/重做 ----------
+const MAX_HISTORY = 50;
+const history = ref<Snapshot[]>([]);
+const future = ref<Snapshot[]>([]);
+
+let currentSnapshot: Snapshot = { nodes: [], edges: [] };
+
+function cloneNodes(): Node[] {
+  return nodes.value.map(n => ({ ...n }));
+}
+
+function cloneEdges(): Edge[] {
+  return edges.value.map(e => ({ ...e, label: e.label }));
+}
+
+function pushSnapshot() {
+  const newSnap = { nodes: cloneNodes(), edges: cloneEdges() };
+  if (JSON.stringify(newSnap) === JSON.stringify(currentSnapshot)) return;
+
+  history.value.push(currentSnapshot);
+  if (history.value.length > MAX_HISTORY) history.value.shift();
+
+  future.value = [];
+  currentSnapshot = newSnap;
+}
+
+function undo() {
+  if (!canUndo.value) return;
+  const prev = history.value.pop()!;
+  future.value.push(currentSnapshot);
+  currentSnapshot = prev;
+  applySnapshot(prev);
+}
+
+function redo() {
+  if (!canRedo.value) return;
+  const next = future.value.pop()!;
+  history.value.push(currentSnapshot);
+  currentSnapshot = next;
+  applySnapshot(next);
+}
+
+function applySnapshot(snap: Snapshot) {
+  nodes.value = snap.nodes.map(n => ({ ...n }));
+  edges.value = snap.edges.map(e => ({ ...e, label: e.label }));
+}
+
+const canUndo = computed(() => history.value.length > 0);
+const canRedo = computed(() => future.value.length > 0);
+
+// 初始化快照
+setTimeout(() => {
+  currentSnapshot = { nodes: cloneNodes(), edges: cloneEdges() };
+}, 0);
+</script>
+
+<style scoped>
+.canvas-app {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #1e1e1e;
+  position: relative;
+  font-family: system-ui, sans-serif;
+}
+
+.toolbar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  z-index: 10;
+  display: flex;
+  gap: 10px;
+  background: #2d2d2d;
+  padding: 8px 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toolbar button {
+  background: #0a84ff;
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: 0.1s;
+}
+
+.toolbar button:hover {
+  background: #0066cc;
+}
+
+.toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #fff;
+  border: 1px solid #555;
+}
+
+.toolbar .divider {
+  width: 1px;
+  background: #555;
+  margin: 0 5px;
+  height: 24px;
+}
+
+.toolbar .info {
+  color: #aaa;
+  font-size: 13px;
+  margin-left: 20px;
+}
+
+.canvas-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  cursor: default;
+}
+
+.marquee-box {
+  position: absolute;
+  border: 1px solid #0a84ff;
+  background: rgba(10, 132, 255, 0.1);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.canvas-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.grid-bg {
+  position: absolute;
+  width: 5000px;
+  height: 5000px;
+  background-image: 
+    linear-gradient(to right, #444 1px, transparent 1px),
+    linear-gradient(to bottom, #444 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.4;
+  pointer-events: none;
+  top: -1000px;
+  left: -1000px;
+}
+
+.edges-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.edges-svg path {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.node-card {
+  position: absolute;
+  width: 180px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  cursor: move;
+  user-select: none;
+  transition: box-shadow 0.1s, border-color 0.1s;
+  border: 2px solid #e0e0e0;
+}
+
+.node-card:hover {
+  box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+}
+
+.node-header {
+  padding: 10px 12px;
+  font-weight: 600;
+  background: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.node-header button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.node-header button:hover {
+  background: #e0e0e0;
+}
+
+.node-body {
+  padding: 12px;
+  color: #666;
+  font-size: 12px;
+}
+
+.property-panel {
+  position: absolute;
+  right: 20px;
+  top: 100px;
+  background: #2d2d2d;
+  color: #eee;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  z-index: 20;
+  min-width: 200px;
+}
+
+.property-panel h4 {
+  margin-top: 0;
+  color: #fff;
+}
+
+.property-panel label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.property-panel input {
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #444;
+  color: #fff;
+}
+
+.property-panel button {
+  margin-top: 12px;
+  background: #0a84ff;
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+</style>

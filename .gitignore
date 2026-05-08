@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+dist/
+data/*
+!data/agent/
+*log*/
+
+# Database
+store/messages.db
+
+# Environment
+.env
+.env.local
+*.env.*
+*.log
+
+# Task tracking (local only)
+tasker/
+
+# Project instructions (local only)
+CLAUDE.md
+
+# Work log (local only)
+worklog.md

@@ -179,7 +179,7 @@ function buildGraphData(): { nodes: GraphNode[]; edges: GraphEdge[] } {
           id: `kp-${kp.id}`, type: "knowledge_point", label: kp.title,
           x: sx + Math.cos(angle) * radius,
           y: sy + Math.sin(angle) * radius + 50,
-          meta: { subjectId: s.id, levelType: kp.level_type, tags: kp.tags },
+          meta: { subjectId: s.id, levelType: kp.level_type, alias: kp.alias },
         });
         edges.push({ id: `edge-kp-${kp.id}`, fromId: `subj-${s.id}`, toId: `kp-${kp.id}`, label: "包含" });
       });
@@ -215,7 +215,7 @@ function buildGraphData(): { nodes: GraphNode[]; edges: GraphEdge[] } {
         nodes.push({
           id: `kp-${child.id}`, type: nodeType, label: child.title,
           x: nx, y: ny,
-          meta: { subjectId: s.id, levelType: child.level_type, tags: child.tags },
+          meta: { subjectId: s.id, levelType: child.level_type, alias: child.alias },
         });
         edges.push({
           id: `edge-${parentId}-${child.id}`,
@@ -870,7 +870,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     // Auto-create root knowledge point for this subject (skip if already exists)
     const existingRoot = searchKnowledgePoints(name, id);
     if (!existingRoot.find((k) => k.level_type === "root" && !k.parent_id)) {
-      addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0, undefined);
+      addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0);
     }
     res.json({ id, name });
   });
@@ -907,42 +907,34 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   });
 
   app.post("/api/admin/knowledge-points", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const { subject_id, title, content, tags, parent_id, level_type, sort_order } = req.body as Record<string, unknown>;
-    if (!subject_id || !title || !content) {
-      res.status(400).json({ error: "subject_id, title, content required" });
+    const { subject_id, title, content, alias, parent_id, level_type, sort_order } = req.body as Record<string, unknown>;
+    if (!subject_id || !title) {
+      res.status(400).json({ error: "subject_id, title required" });
       return;
     }
     const id = addKnowledgePoint(
-      subject_id as number, title as string, content as string,
+      subject_id as number, title as string, content as string | null,
       (parent_id as number) || null, (level_type as string) || undefined,
-      (sort_order as number) || undefined, tags as string | undefined,
+      (sort_order as number) || undefined, alias as string | undefined,
     );
     res.json({ id, title });
   });
 
-  // Math chapter → module mapping for flat format import
-  const MATH_CHAPTER_TO_MODULE: Record<string, string> = {
-    "有理数": "数与式", "有理数的运算": "数与式", "代数式": "数与式",
-    "整式的加减": "数与式", "整式的乘法": "数与式", "因式分解": "数与式",
-    "分式": "数与式", "二次根式": "数与式", "实数": "数与式",
-    "一元一次方程": "方程与不等式", "二元一次方程组": "方程与不等式",
-    "不等式与不等式组": "方程与不等式", "一元二次方程": "方程与不等式",
-    "平面直角坐标系": "函数与图象", "函数": "函数与图象",
-    "二次函数": "函数与图象", "反比例函数": "函数与图象",
-    "相交线与平行线": "图形与几何", "三角形": "图形与几何",
-    "全等三角形": "图形与几何", "轴对称": "图形与几何",
-    "勾股定理": "图形与几何", "四边形": "图形与几何", "旋转": "图形与几何",
-    "圆": "图形与几何", "相似": "图形与几何", "锐角三角函数": "图形与几何",
-    "视图与投影": "图形与几何",
-    "数据的收集、整理与描述": "统计与概率", "概率初步": "统计与概率",
-  };
-
   function importKpPath(
-    subjectId: number, path: string[], content: string,
-    tags: string | undefined, levelTypes: string[] | undefined,
+    subjectId: number, path: string[], content: string | null,
+    alias: string | undefined, levelTypes: string | string[] | undefined,
   ): { created: number; reused: number; error?: string } {
     const defaultLevels = ["root", "module", "chapter", "knowledge_point"];
-    const levels = levelTypes || defaultLevels.slice(0, path.length);
+    let levels: string[];
+    if (typeof levelTypes === "string") {
+      // Single string: use defaults for intermediate levels, string for the last
+      levels = defaultLevels.slice(0, path.length - 1);
+      levels.push(levelTypes as string);
+    } else if (Array.isArray(levelTypes)) {
+      levels = levelTypes;
+    } else {
+      levels = defaultLevels.slice(0, path.length);
+    }
     if (levels.length !== path.length) {
       return { created: 0, reused: 0, error: `level_types length (${levels.length}) must match path length (${path.length})` };
     }
@@ -950,6 +942,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     let parentId: number | null = null;
     let created = 0;
     let reused = 0;
+    const sortCounters = new Map<number | string, number>(); // parentKey → next sort_order
 
     for (let depth = 0; depth < path.length; depth++) {
       const title = path[depth];
@@ -969,9 +962,13 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         parentId = existingUnderParent.id;
         reused++;
       } else {
+        const parentKey = parentId ?? `subj-${subjectId}`;
+        const sortOrder = (sortCounters.get(parentKey) ?? 0);
+        sortCounters.set(parentKey, sortOrder + 1);
         const nodeId = addKnowledgePoint(
-          subjectId, title, depth === path.length - 1 ? content : `${title} (auto-created)`,
-          parentId, levelType, depth, tags,
+          subjectId, title, depth === path.length - 1 ? content : null,
+          parentId, levelType, sortOrder,
+          depth === path.length - 1 ? alias : undefined,
         );
         parentId = nodeId;
         created++;
@@ -980,9 +977,9 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     return { created, reused };
   }
 
-  // Batch import knowledge points
+  // Batch import knowledge points (path format only)
   app.post("/api/admin/knowledge-points/import", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const { subject_id, items, format } = req.body as { subject_id: unknown; items: unknown; format?: string };
+    const { subject_id, items } = req.body as { subject_id: unknown; items: unknown };
     const subjectId = typeof subject_id === "number" ? subject_id : Number(subject_id);
     if (!subjectId) {
       res.status(400).json({ error: "subject_id required (number)" });
@@ -994,8 +991,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     }
 
     const subjects = getAllSubjects();
-    const subject = subjects.find((s) => s.id === subjectId);
-    if (!subject) {
+    if (!subjects.find((s) => s.id === subjectId)) {
       res.status(404).json({ error: `Subject ${subjectId} not found` });
       return;
     }
@@ -1004,85 +1000,24 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     let reused = 0;
     const errors: string[] = [];
 
-    // Auto-detect format from first item if not explicitly specified
-    const firstItem = items[0] as Record<string, unknown>;
-    const detectedFormat = format || (firstItem.chapter_cn && firstItem.content_name ? "flat" : "path");
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] as Record<string, unknown>;
+      const path = item.path as string[];
+      const content = (item.content as string) || null;
+      const alias = item.alias as string | undefined;
+      const levelTypes = item.level_types as string | string[] | undefined;
 
-    // Flat format: math-specific, chapter_cn + content_name → auto-expand to 4-level path
-    if (detectedFormat === "flat") {
-      if (subject.name !== "Mathematics") {
-        res.status(400).json({ error: "flat format is only supported for Mathematics" });
-        return;
+      if (!Array.isArray(path) || path.length === 0) {
+        errors.push(`Item ${i}: path is required and must be a non-empty array`);
+        continue;
       }
-      const subjectName = subject.name_cn || subject.name;
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i] as Record<string, unknown>;
-        const chapterCn = (item.chapter_cn as string) || "";
-        const chapterEn = item.chapter_en as string | undefined;
-        const contentName = (item.content_name as string) || "";
-        const content = (item.content as string) || "";
-        const tags = item.tags as string | undefined;
-
-        if (!chapterCn || !contentName) {
-          errors.push(`Item ${i}: chapter_cn and content_name required`);
-          continue;
-        }
-
-        const module = MATH_CHAPTER_TO_MODULE[chapterCn];
-        if (!module) {
-          errors.push(`Item ${i}: 章节"${chapterCn}"不在数学章节映射表中，请检查或使用 path 格式`);
-          continue;
-        }
-
-        const path = [subjectName, module, chapterCn, contentName];
-        if (path.length > 4) {
-          errors.push(`Item ${i}: path too deep (${path.length})`);
-          continue;
-        }
-
-        // Build chapter tags with en name
-        const chapterTags = chapterEn ? JSON.stringify({ en: chapterEn }) : undefined;
-
-        const result = importKpPath(subjectId, path, content, tags, ["root", "module", "chapter", "knowledge_point"]);
-        if (result.error) {
-          errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
-        }
-        created += result.created;
-        reused += result.reused;
-
-        // If chapter node was created and has en tag, update it
-        if (chapterEn) {
-          const chapterNodes = searchKnowledgePoints(chapterCn, subjectId);
-          const chapterNode = chapterNodes.find((k) => k.title === chapterCn && k.level_type === "chapter");
-          if (chapterNode) {
-            const existingTags = chapterNode.tags ? JSON.parse(chapterNode.tags) : {};
-            existingTags.en = chapterEn;
-            updateKnowledgePoint(chapterNode.id, undefined, undefined, JSON.stringify(existingTags));
-          }
-        }
+      const result = importKpPath(subjectId, path, content, alias, levelTypes);
+      if (result.error) {
+        errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
       }
-    } else {
-      // Path format (default): explicit path array
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i] as Record<string, unknown>;
-        const path = item.path as string[];
-        const content = (item.content as string) || "";
-        const tags = item.tags as string | undefined;
-        const levelTypes = item.level_types as string[] | undefined;
-
-        if (!Array.isArray(path) || path.length === 0 || path.length > 4) {
-          errors.push(`Item ${i}: path must be 1-4 elements, got ${path?.length || 0}`);
-          continue;
-        }
-
-        const result = importKpPath(subjectId, path, content, tags, levelTypes);
-        if (result.error) {
-          errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
-        }
-        created += result.created;
-        reused += result.reused;
-      }
+      created += result.created;
+      reused += result.reused;
     }
 
     res.json({
@@ -1095,8 +1030,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
   app.put("/api/admin/knowledge-points/:id", requireAuth, requireAdmin, (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
-    const { title, content, tags } = req.body as Record<string, unknown>;
-    const ok = updateKnowledgePoint(id, title as string, content as string, tags as string | null);
+    const { title, content, alias } = req.body as Record<string, unknown>;
+    const ok = updateKnowledgePoint(id, title as string, (content as string) || null, alias as string | undefined);
     if (!ok) {
       res.status(404).json({ error: "Knowledge point not found" });
       return;

@@ -1,0 +1,1 @@
+{"nodes": [{"id": "config_config", "label": "Configuration Module", "file_type": "code", "source_file": "src/config.ts"}], "edges": [{"source": "config_config", "target": "env_env", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "src/config.ts"}], "hyperedges": []}

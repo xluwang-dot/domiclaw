@@ -1,0 +1,1 @@
+{"nodes": [{"id": "web_login_html", "label": "Login/Register Page", "file_type": "document", "source_file": "web/login.html"}], "edges": [{"source": "web_login_html", "target": "channels_http_server", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "web/login.html"}], "hyperedges": []}

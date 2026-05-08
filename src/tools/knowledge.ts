@@ -20,17 +20,17 @@ registerTool("add_knowledge_point", {
           subject: { type: "string", description: "Subject name (e.g. Mathematics)" },
           title: { type: "string", description: "Title of the knowledge point" },
           content: { type: "string", description: "Detailed content/explanation" },
-          tags: { type: "string", description: "Optional comma-separated tags" },
+          alias: { type: "string", description: "Optional English alias for the knowledge point" },
         },
-        required: ["subject", "title", "content"],
+        required: ["subject", "title"],
       },
     },
   },
   async execute(args) {
     const subjectName = args.subject as string;
     const title = args.title as string;
-    const content = args.content as string;
-    const tags = args.tags as string | undefined;
+    const content = (args.content as string) || "";
+    const alias = args.alias as string | undefined;
 
     const subject = getSubjectByName(subjectName);
     if (!subject) {
@@ -38,7 +38,7 @@ registerTool("add_knowledge_point", {
       return `Subject "${subjectName}" not found. Available subjects: ${subjects}`;
     }
 
-    const id = addKnowledgePoint(subject.id, title, content, undefined, undefined, undefined, tags);
+    const id = addKnowledgePoint(subject.id, title, content, undefined, undefined, undefined);
     return `Knowledge point added (ID: ${id}). Subject: ${subjectName}, Title: ${title}`;
   },
 });
@@ -76,7 +76,7 @@ registerTool("search_knowledge", {
     return results
       .map(
         (kp, i) =>
-          `${i + 1}. [${kp.title}] ${kp.content.substring(0, 300)}${kp.content.length > 300 ? "..." : ""}${kp.tags ? ` (tags: ${kp.tags})` : ""}`,
+          `${i + 1}. [${kp.title}] ${(kp.content || "").substring(0, 300)}${(kp.content || "").length > 300 ? "..." : ""}${kp.alias ? ` (${kp.alias})` : ""}`,
       )
       .join("\n\n");
   },

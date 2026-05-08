@@ -35,17 +35,23 @@ function createSchema(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS knowledge_points (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL REFERENCES subjects(id),
       parent_id INTEGER REFERENCES knowledge_points(id),
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
       level_type TEXT NOT NULL DEFAULT 'knowledge_point',
       sort_order INTEGER NOT NULL DEFAULT 0,
-      tags TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (subject_id) REFERENCES subjects(id),
+      title TEXT NOT NULL,
+      alias TEXT,
+      content TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(parent_id, title)
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_kp_subject ON knowledge_points(subject_id);
+    CREATE INDEX IF NOT EXISTS idx_kp_level_type ON knowledge_points(level_type);
+    CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON knowledge_points(subject_id, level_type);
+    CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON knowledge_points(parent_id, sort_order);
 
     CREATE TABLE IF NOT EXISTS exam_papers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,7 +215,7 @@ const LEVEL_RULES: Record<string, string[]> = {
   "unit": ["chapter", "section", "knowledge_point"],
   "chapter": ["knowledge_point"],
   "section": ["knowledge_point"],
-  "knowledge_point": [], // leaf — no children
+  "knowledge_point": ["knowledge_point"], // allows nesting for finer granularity
 };
 
 export function validateKnowledgePointLevel(
@@ -231,14 +237,14 @@ function ensureRootKnowledgePoints(database: Database.Database): void {
     "SELECT 1 FROM knowledge_points WHERE subject_id = ? AND parent_id IS NULL AND level_type = 'root'",
   );
   const insert = database.prepare(
-    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at)
-     VALUES (?, NULL, ?, ?, 'root', 0, ?)`,
+    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at, updated_at)
+     VALUES (?, NULL, ?, ?, 'root', 0, ?, ?)`,
   );
   const now = new Date().toISOString();
   for (const s of subjects) {
     if (!exists.get(s.id)) {
       const title = s.name_cn || s.name;
-      insert.run(s.id, title, `${title} 学科根节点`, now);
+      insert.run(s.id, title, `${title} 学科根节点`, now, now);
     }
   }
 }
@@ -265,12 +271,29 @@ export function initDatabase(): void {
     `ALTER TABLE knowledge_points ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE subjects ADD COLUMN name_cn TEXT`,
     `ALTER TABLE subjects ADD COLUMN alias TEXT`,
+    `ALTER TABLE knowledge_points ADD COLUMN alias TEXT`,
+    `ALTER TABLE knowledge_points ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_questions_user ON questions(user_id)"); } catch { /* ok */ }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id)"); } catch { /* ok */ }
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_parent_title ON knowledge_points(parent_id, title) WHERE parent_id IS NOT NULL"); } catch { /* ok */ }
+  try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL"); } catch { /* ok */ }
+
+  // Migrate tags->alias: extract en from {"en":"rational_number"} JSON
+  try {
+    const rows = db.prepare("SELECT id, tags FROM knowledge_points WHERE tags IS NOT NULL AND alias IS NULL").all() as { id: number; tags: string }[];
+    const update = db.prepare("UPDATE knowledge_points SET alias = ? WHERE id = ?");
+    for (const r of rows) {
+      try {
+        const obj = JSON.parse(r.tags);
+        if (obj.en) update.run(obj.en, r.id);
+      } catch { /* not JSON — skip */ }
+    }
+  } catch { /* migration already done */ }
+  // Drop tags column (SQLite 3.35+)
+  try { db.exec("ALTER TABLE knowledge_points DROP COLUMN tags"); } catch { /* already dropped */ }
 
   // Rebuild user_kp_mastery with (user_id, subject_id, kp_id) PK if needed
   const masteryCols = db.prepare("PRAGMA table_info(user_kp_mastery)").all() as { name: string }[];
@@ -413,73 +436,76 @@ export function deleteSubject(id: number): boolean {
 
 export interface KnowledgePointRow {
   id: number; subject_id: number; parent_id: number | null;
-  title: string; content: string; level_type: string;
-  sort_order: number; tags: string | null;
+  level_type: string; sort_order: number;
+  title: string; alias: string | null; content: string | null;
+  created_at: string; updated_at: string;
 }
 
 export function addKnowledgePoint(
-  subjectId: number, title: string, content: string,
-  parentId?: number | null, levelType?: string, sortOrder?: number, tags?: string,
+  subjectId: number, title: string, content?: string | null,
+  parentId?: number | null, levelType?: string, sortOrder?: number,
+  alias?: string | null,
 ): number {
+  const now = new Date().toISOString();
   const result = db.prepare(
-    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, tags, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(subjectId, parentId || null, title, content, levelType || "knowledge_point", sortOrder || 0, tags || null, new Date().toISOString());
+    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, alias, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(subjectId, parentId || null, title, content || null, levelType || "knowledge_point", sortOrder || 0, alias || null, now, now);
   return result.lastInsertRowid as number;
 }
 
+const KP_SELECT = `id, subject_id, parent_id, level_type, sort_order, title, alias, content, created_at, updated_at`;
+
 export function searchKnowledgePoints(query: string, subjectId?: number): KnowledgePointRow[] {
   const like = `%${query}%`;
-  const cols = "id, subject_id, parent_id, title, content, level_type, sort_order, tags";
   if (subjectId) {
     return db.prepare(
-      `SELECT ${cols} FROM knowledge_points
-       WHERE (title LIKE ? OR content LIKE ? OR tags LIKE ?) AND subject_id = ?
+      `SELECT ${KP_SELECT} FROM knowledge_points
+       WHERE (title LIKE ? OR content LIKE ? OR alias LIKE ?) AND subject_id = ?
        ORDER BY level_type, sort_order, title LIMIT 20`,
     ).all(like, like, like, subjectId) as KnowledgePointRow[];
   }
   return db.prepare(
-    `SELECT ${cols} FROM knowledge_points
-     WHERE title LIKE ? OR content LIKE ? OR tags LIKE ?
+    `SELECT ${KP_SELECT} FROM knowledge_points
+     WHERE title LIKE ? OR content LIKE ? OR alias LIKE ?
      ORDER BY level_type, sort_order, title LIMIT 20`,
   ).all(like, like, like) as KnowledgePointRow[];
 }
 
 export function getKnowledgePointById(id: number): KnowledgePointRow | undefined {
-  return db.prepare(
-    "SELECT id, subject_id, parent_id, title, content, level_type, sort_order, tags FROM knowledge_points WHERE id = ?",
-  ).get(id) as KnowledgePointRow | undefined;
+  return db.prepare(`SELECT ${KP_SELECT} FROM knowledge_points WHERE id = ?`).get(id) as KnowledgePointRow | undefined;
 }
 
 export function getKnowledgePointsBySubject(subjectId: number): KnowledgePointRow[] {
   return db.prepare(
-    `SELECT id, subject_id, parent_id, title, content, level_type, sort_order, tags
-     FROM knowledge_points WHERE subject_id = ?
-     ORDER BY level_type, sort_order, title`,
+    `SELECT ${KP_SELECT} FROM knowledge_points WHERE subject_id = ? ORDER BY level_type, sort_order, title`,
   ).all(subjectId) as KnowledgePointRow[];
 }
 
 export function getAllKnowledgePoints(): KnowledgePointRow[] {
   return db.prepare(
-    `SELECT id, subject_id, parent_id, title, content, level_type, sort_order, tags
-     FROM knowledge_points ORDER BY subject_id, level_type, sort_order, title`,
+    `SELECT ${KP_SELECT} FROM knowledge_points ORDER BY subject_id, level_type, sort_order, title`,
   ).all() as KnowledgePointRow[];
 }
 
 export function updateKnowledgePoint(
-  id: number, title?: string, content?: string, tags?: string | null,
-  parentId?: number | null, levelType?: string, sortOrder?: number,
+  id: number, title?: string, content?: string | null,
+  alias?: string | null, parentId?: number | null,
+  levelType?: string, sortOrder?: number,
 ): boolean {
+  const now = new Date().toISOString();
   const result = db.prepare(
     `UPDATE knowledge_points
      SET title = COALESCE(?, title), content = COALESCE(?, content),
-         tags = COALESCE(?, tags), parent_id = COALESCE(?, parent_id),
-         level_type = COALESCE(?, level_type), sort_order = COALESCE(?, sort_order)
+         alias = COALESCE(?, alias), parent_id = COALESCE(?, parent_id),
+         level_type = COALESCE(?, level_type), sort_order = COALESCE(?, sort_order),
+         updated_at = ?
      WHERE id = ?`,
   ).run(
-    title || null, content || null, tags !== undefined ? tags : null,
+    title || null, content !== undefined ? content : null,
+    alias !== undefined ? alias : null,
     parentId !== undefined ? (parentId ?? null) : null,
-    levelType || null, sortOrder ?? null, id,
+    levelType || null, sortOrder ?? null, now, id,
   );
   return result.changes > 0;
 }

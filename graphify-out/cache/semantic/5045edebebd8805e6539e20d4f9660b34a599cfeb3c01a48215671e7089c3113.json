@@ -1,0 +1,1 @@
+{"nodes": [{"id": "tools_study_plan", "label": "Study Plan Tools", "file_type": "code", "source_file": "src/tools/study.ts"}], "edges": [{"source": "tools_study_plan", "target": "tools_index_registerTool", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "src/tools/study.ts"}], "hyperedges": []}

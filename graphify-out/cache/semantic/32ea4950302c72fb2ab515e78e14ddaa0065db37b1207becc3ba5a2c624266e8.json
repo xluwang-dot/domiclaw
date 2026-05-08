@@ -1,0 +1,1 @@
+{"nodes": [{"id": "commands_commands", "label": "Command Handler", "file_type": "code", "source_file": "src/commands.ts"}], "edges": [{"source": "commands_commands", "target": "db_database", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "src/commands.ts"}], "hyperedges": []}

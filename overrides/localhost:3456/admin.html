@@ -38,20 +38,8 @@ tr:hover{background:rgba(0,0,0,0.03)}
 .pagination button:disabled{opacity:.3;cursor:not-allowed}
 .pagination span{font-size:12px;color:#999}
 .dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;z-index:100}
-.dialog{background:#fff;border:1px solid #ddd;border-radius:12px;padding:24px;width:600px;max-height:85vh;overflow-y:auto}
-.dialog-header{position:relative;margin-bottom:16px;padding-right:24px}
-.dialog h3{margin:0;font-size:16px;color:#333}
-.dialog-close{position:absolute;right:0;top:0;background:none;border:none;font-size:20px;color:#c44;cursor:pointer;padding:0;line-height:1}
-.dialog-close:hover{color:#a33}
-.dialog-label{display:block;font-size:12px;color:#666;margin-bottom:4px;font-weight:500}
-.dialog-field{margin-bottom:12px}
-.dialog input,.dialog select,.dialog textarea{padding:8px 10px;font-size:13px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#222;outline:none}
-.dialog input,.dialog select{height:34px}
-@media (max-width:600px){
-  .dialog{width:95%;padding:16px}
-  .dialog-field{display:block!important}
-  .dialog-field>div{width:100%!important;margin-bottom:8px}
-}
+.dialog{background:#fff;border:1px solid #ddd;border-radius:12px;padding:24px;width:560px;max-height:85vh;overflow-y:auto}
+.dialog h3{margin-bottom:14px;font-size:16px;color:#333}
 .dialog textarea{padding:8px;border-radius:4px;border:1px solid #ccc;background:#fff;color:#222;font-size:13px;outline:none;width:100%;min-height:80px;resize:vertical}
 .dialog textarea:focus{border-color:#0a84ff}
 .dialog-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
@@ -92,15 +80,16 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <div class="content">
 <!-- Subjects -->
 <div v-if="tab==='subjects'">
-<table v-if="subjects.length"><thead><tr><th>ID</th><th>中文名</th><th>英文名</th><th>描述</th><th>Actions</th></tr></thead>
+<div class="form-row">
+<input v-model="subjName" placeholder="Subject name" @keyup.enter="createSubject" />
+<input v-model="subjDesc" placeholder="Description" />
+<button class="btn btn-blue" @click="createSubject">Add</button>
+</div>
+<table v-if="subjects.length"><thead><tr><th>ID</th><th>Name</th><th>Description</th><th>Actions</th></tr></thead>
 <tbody><tr v-for="s in subjects" :key="s.id">
-<td style="font-size:11px;color:#999">{{s.id}}</td>
-<td>{{s.name_cn||s.name}}</td>
-<td>{{s.name}}</td>
-<td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{s.description||'-'}}</td>
-<td style="text-align:center"><button class="btn-sm btn-red" @click="removeSubject(s.id)">Delete</button></td>
-</tr>
-<tr><td colspan="4"></td><td style="text-align:center"><button class="btn btn-green" @click="showSubjDialog=true">+ Add Subject</button></td></tr></tbody></table>
+<td>{{s.id}}</td><td>{{s.name}}</td><td>{{s.description||'-'}}</td>
+<td><button class="btn-sm btn-red" @click="removeSubject(s.id)">Delete</button></td>
+</tr></tbody></table>
 <div v-else class="empty">No subjects.</div>
 </div>
 
@@ -113,7 +102,8 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <option value="knowledge_point">knowledge_point only</option>
 <option value="root">root</option><option value="module">module</option><option value="domain">domain</option><option value="unit">unit</option><option value="chapter">chapter</option><option value="section">section</option></select>
 <button class="btn btn-blue" @click="fetchKPs">Filter</button>
-<button class="btn btn-gray" @click="showKpImport=true" style="margin-left:auto">Import</button>
+<button class="btn btn-green" @click="showKpDialog=true;editingKp=null" style="margin-left:auto">+ Add</button>
+<button class="btn btn-gray" @click="showKpImport=true" style="margin-left:4px">Import</button>
 </div>
 <table v-if="treeRows.length"><thead><tr><th>ID</th><th>Title</th><th>Type</th><th>Alias</th><th>Content</th><th>Actions</th></tr></thead>
 <tbody><tr v-for="row in treeRows" :key="row.id" :style="{background:row._depth===0?'#f8f8f8':''}">
@@ -128,8 +118,8 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <td style="font-size:11px;color:#0a84ff;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{row.alias||'-'}}</td>
 <td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{row.content||''}}</td>
 <td>
-<button v-if="row.level_type!=='root'" class="btn-sm btn-blue" @click="editKp(row)">Edit</button>
-<button class="btn-sm btn-green" @click="addChildKp(row)">Add</button>
+<button class="btn-sm btn-blue" @click="editKp(row)">Edit</button>
+<button class="btn-sm btn-red" @click="removeKp(row.id)">Del</button>
 </td></tr></tbody></table>
 <div v-else class="empty">Select a subject to see KPs.</div>
 </div>
@@ -184,188 +174,68 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <button @click="uPage--;fetchUsers()" :disabled="uPage<=1">Prev</button>
 <span>Page {{uPage}} / {{Math.ceil(uTotal/20)}}</span>
 <button @click="uPage++;fetchUsers()" :disabled="uPage*20>=uTotal">Next</button></div>
-<!-- Subject Dialog -->
-<div v-if="showSubjDialog" class="dialog-overlay" @click.self="showSubjDialog=false"><div class="dialog">
-  <div class="dialog-header">
-    <h3>添加科目</h3>
-    <button class="dialog-close" @click="showSubjDialog=false">✕</button>
-  </div>
-  <div class="dialog-field">
-    <label class="dialog-label">中文名</label>
-    <input v-model="subjForm.name_cn" placeholder="中文名" style="width:100%" />
-  </div>
-  <div class="dialog-field">
-    <label class="dialog-label">英文名</label>
-    <input v-model="subjForm.name" placeholder="英文名" style="width:100%" />
-  </div>
-  <div class="dialog-field">
-    <label class="dialog-label">描述</label>
-    <textarea v-model="subjForm.description" placeholder="描述" style="width:100%;min-height:80px"></textarea>
-  </div>
-  <div class="dialog-actions">
-    <button class="btn-sm btn-gray" @click="showSubjDialog=false">取消</button>
-    <button class="btn-sm btn-blue" @click="saveSubject" style="flex:1;max-width:132px;height:24px">保存</button>
-  </div>
-</div></div>
+</div>
 </div>
 
 <!-- KP Dialog -->
 <div v-if="showKpDialog" class="dialog-overlay" @click.self="showKpDialog=false"><div class="dialog">
-  <div class="dialog-header">
-    <h3 v-if="editingKp">编辑知识点 - {{editingKp.title}}</h3>
-    <h3 v-else>添加知识点</h3>
-    <button class="dialog-close" @click="showKpDialog=false">✕</button>
-  </div>
-  <!-- 添加模式 -->
-  <template v-if="!editingKp">
-    <!-- 科目（无父节点时显示） -->
-    <template v-if="!kpForm.parent_id">
-      <div class="dialog-field">
-        <label class="dialog-label">科目 *</label>
-        <select v-model="kpForm.subject_id" style="width:100%"><option value="">选择科目</option><option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
-      </div>
-    </template>
-    <!-- 父节点信息 -->
-    <template v-if="kpForm.parent_id">
-      <div class="dialog-field" style="display:flex;gap:16px">
-        <div style="flex:1"><label class="dialog-label">父节点</label><input :value="getKpTitle(kpForm.parent_id)" readonly style="width:100%;background:#f5f5f5" /></div>
-        <div style="flex:1"><label class="dialog-label">父节点Level</label><input :value="getKpLevelType(kpForm.parent_id)" readonly style="width:100%;background:#f5f5f5" /></div>
-      </div>
-    </template>
-    <!-- 知识点级别（必选） -->
-    <div class="dialog-field">
-      <label class="dialog-label">知识点级别 *</label>
-      <select v-model="kpForm.level_type" style="width:100%">
-        <template v-if="kpForm.parent_id">
-          <option value="" disabled>请选择</option>
-          <option v-for="lt in childLevelOptions" :key="lt" :value="lt">{{lt}}</option>
-        </template>
-        <template v-else>
-          <option value="" disabled>请选择</option>
-          <option value="module">module</option>
-          <option value="domain">domain</option>
-          <option value="subject_area">subject_area</option>
-          <option value="chapter">chapter</option>
-          <option value="unit">unit</option>
-          <option value="section">section</option>
-          <option value="concept">concept</option>
-          <option value="lesson">lesson</option>
-          <option value="knowledge_point">knowledge_point</option>
-        </template>
-      </select>
-    </div>
-    <!-- 知识点名称（必填） -->
-    <div class="dialog-field">
-      <label class="dialog-label">知识点名称 *</label>
-      <input v-model="kpForm.title" placeholder="请输入知识点名称" style="width:100%" />
-    </div>
-    <!-- 英文别名（非knowledge_point显示） -->
-    <div class="dialog-field" v-if="kpForm.level_type!=='knowledge_point'">
-      <label class="dialog-label">英文别名</label>
-      <input v-model="kpForm.alias" placeholder="English alias" style="width:100%" />
-    </div>
-    <!-- 知识点内容（knowledge_point显示） -->
-    <div class="dialog-field" v-if="kpForm.level_type==='knowledge_point'">
-      <label class="dialog-label">知识点内容</label>
-      <textarea v-model="kpForm.content" placeholder="请输入知识点内容" style="width:100%;min-height:100px"></textarea>
-    </div>
-  </template>
-  <!-- 编辑模式：根节点提示 -->
-  <template v-if="editingKp && isRootNode(editingKp)">
-    <div style="padding:12px;background:#f8f8f8;border-radius:6px;color:#666;font-size:13px;text-align:center;margin-bottom:8px">根节点不可编辑</div>
-  </template>
-  <!-- 非根节点编辑 -->
-  <template v-if="editingKp && !isRootNode(editingKp)">
-    <div class="dialog-field">
-      <label class="dialog-label">英文别名</label>
-      <input v-model="kpForm.alias" placeholder="English alias" style="width:100%" />
-    </div>
-    <div class="dialog-field">
-      <label class="dialog-label">知识点名称</label>
-      <input v-model="kpForm.title" placeholder="知识点名称" style="width:100%" />
-    </div>
-    <div class="dialog-field">
-      <label class="dialog-label">知识点内容</label>
-      <textarea v-model="kpForm.content" placeholder="知识点内容" style="width:100%;min-height:100px"></textarea>
-    </div>
-  </template>
-  <!-- 底部按钮 -->
-  <div class="dialog-actions" style="justify-content:space-between;margin-top:20px;padding-top:16px;border-top:1px solid #eee">
-    <template v-if="editingKp && !isRootNode(editingKp)">
-      <button class="btn-sm btn-red" @click="deleteKp" style="flex:1;max-width:132px;height:24px">删除</button>
-      <button class="btn-sm btn-blue" @click="saveKp" style="flex:1;max-width:132px;height:24px">保存</button>
-    </template>
+<h3>{{editingKp?'Edit':'Add'}} Knowledge Point</h3>
+<div class="form-row" style="flex-direction:column">
     <template v-if="!editingKp">
-      <div></div>
-      <button class="btn-sm btn-blue" @click="saveKp" style="flex:1;max-width:132px;height:24px">保存</button>
+      <select v-model="kpForm.subject_id"><option value="">Subject</option><option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
     </template>
-    <template v-if="editingKp && isRootNode(editingKp)">
-      <button class="btn-sm btn-gray" @click="showKpDialog=false" style="width:100%;height:24px">关闭</button>
-    </template>
+    <input v-model="kpForm.title" placeholder="Title" />
+    <textarea v-model="kpForm.content" placeholder="Content"></textarea>
+    <select v-model="kpForm.level_type"><option value="root">root (L1)</option><option value="module">module (L2)</option><option value="domain">domain (L2)</option><option value="unit">unit (L2)</option><option value="chapter">chapter (L3)</option><option value="section">section (L3)</option><option value="knowledge_point">knowledge_point (L4)</option></select>
+    <input v-model.number="kpForm.sort_order" type="number" placeholder="Sort" style="width:80px" />
+    <input v-model="kpForm.alias" placeholder="Alias (English)" />
+    <select v-model="kpForm.parent_id"><option :value="null">No parent</option><option v-for="k in kps" :key="k.id" :value="k.id">{{k.title}} ({{k.level_type||'kp'}})</option></select>
   </div>
+<div class="dialog-actions">
+<button class="btn-sm btn-gray" @click="showKpDialog=false">Cancel</button>
+<button class="btn-sm btn-blue" @click="saveKp">Save</button></div>
 </div></div>
 
 <!-- KP Import Dialog -->
 <div v-if="showKpImport" class="dialog-overlay" @click.self="showKpImport=false"><div class="dialog" style="width:680px;max-height:90vh">
-<div class="dialog-header">
 <h3>Import Knowledge Points</h3>
-<button class="dialog-close" @click="showKpImport=false;resetKpImport()">✕</button>
-</div>
-<div v-if="!kpImportFileLoaded" style="background:#f8f8f8;border-radius:8px;padding:14px;margin-bottom:14px;font-size:12px;line-height:1.6;color:#333">
-<b>系统支持JSON文件导入，知识点的结构如下：</b>
+<div style="background:#f8f8f8;border-radius:8px;padding:14px;margin-bottom:14px;font-size:12px;line-height:1.6;max-height:240px;overflow-y:auto;color:#333">
+<b>4-Level Flat Tree Structure</b><br><br>
+<table style="font-size:11px;margin:4px 0"><thead><tr><th>Layer</th><th>level_type</th><th>Example</th></tr></thead>
+<tbody>
+<tr><td>L1</td><td>root</td><td>数学</td></tr>
+<tr><td>L2</td><td>module | domain | unit</td><td>数与式</td></tr>
+<tr><td>L3</td><td>chapter | section</td><td>有理数</td></tr>
+<tr><td>L4</td><td>knowledge_point</td><td>绝对值 (leaf, no children)</td></tr>
+</tbody></table><br>
+<b>Rules:</b> knowledge_point is leaf (no children). Same parent+title = reuse existing node.<br>
+Path depth &gt; 4 → rejected. Missing intermediate nodes auto-created.<br><br>
+<b>Template:</b>
 <pre style="background:#2d2d2d;color:#8c8;padding:8px;border-radius:4px;overflow-x:auto;font-size:11px">{
   "subject_id": 1,
   "items": [
-    {
-      "path": ["根节点", "子节点", ...],
-      "content": "知识点内容",
-      "alias": "english_alias",
-      "level_types": "module|chapter|knowledge_point"
-    }
+    {"path":["数学","数与式","有理数","绝对值"],"content":"绝对值是指...","alias":"absolute_value"}
   ]
 }</pre>
-• path：标题数组，从根节点到目标节点的完整路径（必填）。<br>
-• level_types：层级类型（必填）<br>
-<b>知识点的层级关系：</b><br>
-root：学科根节点<br>
-module/domain/subject_area：模块节点；<br>
-chapter/unit：章节点；<br>
-section/concept/lesson → 课节点；<br>
-knowledge_point → 知识点；
+<b>path</b> must be a non-empty title array from root to leaf. Each element is auto-created if missing, or reused if matching (same parent + same title).
 </div>
-<div class="form-row" style="justify-content:flex-end;gap:8px;align-items:flex-end">
-<template v-if="!kpImportFileLoaded">
+<div class="form-row" style="flex-direction:column">
 <select v-model="kpImportSubjectId"><option value="">Select subject</option>
 <option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name_cn||s.name}}</option></select>
-<input type="file" ref="kpImportFileInput" accept=".json" style="display:none" @change="handleKpImportFile" />
-<button class="btn btn-red" @click="handleUploadClick">上传 JSON 文件</button>
-</template>
-<template v-else>
-<textarea v-model="kpImportJson" style="flex:1;min-height:200px" readonly></textarea>
-</template>
+<textarea v-model="kpImportJson" placeholder='Paste JSON here (array of items or {subject_id, items: [...]} object)...' style="min-height:120px"></textarea>
 </div>
-<div class="dialog-actions" style="justify-content:flex-end;gap:8px">
-<template v-if="kpImportFileLoaded">
-<button class="btn-sm btn-gray" @click="resetKpImport">取消</button>
-<button class="btn-sm btn-blue" @click="doKpImport">确认上传</button>
-</template>
-</div>
-<div v-if="kpImportResult" style="font-size:13px;margin-top:8px;padding:12px;background:#f0f8f0;border-radius:4px;border:1px solid #3a8">
-<span v-if="kpImportResult.created!==undefined||kpImportResult.reused!==undefined">
-成功导入 <b style="color:#3a8">{{kpImportResult.created||0}}</b> 条，失败 <b style="color:#e05555">{{kpImportResult.errors?kpImportResult.errors.length:0}}</b> 条
-<span v-if="kpImportResult.errors&&kpImportResult.errors.length>0" style="color:#0a84ff;cursor:pointer;text-decoration:underline;margin-left:8px" @click="kpImportErrorsDialog=true">查看详情</span>
+<div v-if="kpImportResult" style="font-size:12px;margin-top:8px;padding:8px;background:#f8f8f8;border-radius:4px">
+<span v-if="kpImportResult.created||kpImportResult.reused" style="font-size:13px">
+<span style="color:#4a9a4a" v-if="kpImportResult.created">New: {{kpImportResult.created}} </span>
+<span style="color:#0a84ff" v-if="kpImportResult.reused">Existing: {{kpImportResult.reused}} </span>
+<span v-if="!kpImportResult.created&&kpImportResult.reused" style="color:#ca8"> (all nodes already imported, nothing new created)</span>
 </span>
+<span style="color:#e05555" v-if="kpImportResult.errors">{{kpImportResult.errors.length}} error(s)</span>
+<div v-if="kpImportResult.errors" style="color:#e05555;margin-top:4px;max-height:120px;overflow-y:auto"><div v-for="(e,i) in kpImportResult.errors" :key="i" style="font-size:11px">{{e}}</div></div>
 </div>
-
-</div></div>
-
-<!-- KP Import Errors Dialog -->
-<div v-if="kpImportErrorsDialog" class="dialog-overlay" @click.self="kpImportErrorsDialog=false"><div class="dialog" style="width:500px">
-<h3>导入失败详情</h3>
-<div style="max-height:300px;overflow-y:auto;font-size:12px;color:#e05555;white-space:pre-wrap">
-<div v-for="(e,i) in kpImportResult.errors" :key="i">{{e}}</div>
-</div>
-<div class="dialog-actions"><button class="btn-sm btn-gray" @click="kpImportErrorsDialog=false">关闭</button></div>
+<div class="dialog-actions">
+<button class="btn-sm btn-gray" @click="showKpImport=false;kpImportResult=null">Close</button>
+<button class="btn-sm btn-blue" @click="doKpImport">Import</button></div>
 </div></div>
 
 <!-- Question Dialog -->
@@ -409,19 +279,14 @@ const {ref,onMounted,computed,reactive}=Vue;
 Vue.createApp({setup(){
 const tab=ref('subjects'),user=ref(null);
 // Subjects
-const subjects=ref([]),subjName=ref(''),subjDesc=ref(''),showSubjDialog=ref(false),subjForm=ref({name_cn:'',name:'',description:''});
+const subjects=ref([]),subjName=ref(''),subjDesc=ref('');
 // KPs
 const kps=ref([]),kpSubjectId=ref(''),kpLevelFilter=ref(''),allKps=ref([]),showKpDialog=ref(false),editingKp=ref(null);
 const kpForm=ref({subject_id:'',title:'',content:'',level_type:'knowledge_point',sort_order:0,alias:'',parent_id:null});
-const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null),kpImportFileInput=ref(null),kpImportErrorsDialog=ref(false),kpImportFileLoaded=ref(false);
+const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null);
 const expandedNodes=reactive({});
 function toggleNode(id){expandedNodes[id]=!expandedNodes[id]}
 const treeRows=computed(()=>{const raw=kps.value||[];const map={};for(const k of raw)map[k.id]=k;const kids={};for(const k of raw){const pid=k.parent_id||0;if(!kids[pid])kids[pid]=[];kids[pid].push(k)}for(const key of Object.keys(kids)){kids[key].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)||a.id-b.id)}const lv=kpLevelFilter.value;const rows=[];function walk(pid,depth){const items=kids[pid]||[];for(const k of items){const has=kids[k.id]&&kids[k.id].length>0;rows.push({...k,_depth:depth,_hasChildren:has,_expanded:!!expandedNodes[k.id]});if(has&&expandedNodes[k.id])walk(k.id,depth+1)}}walk(0,0);if(lv)return rows.filter(r=>r.level_type===lv);return rows});
-function isRootNode(kp){return kp.level_type==='root'}
-function isLeafNode(kp){return kp.level_type!=='root'&&!kp._hasChildren}
-function hasChildren(kp){if(kp._hasChildren)return true;return kps.value.some(k=>k.parent_id===kp.id)}
-function getKpTypeLabel(kp){if(isRootNode(kp))return'根节点';if(isLeafNode(kp))return'叶子节点';return'中间节点'}
-const parentOptions=computed(()=>{if(!editingKp.value)return kps.value;const current=editingKp.value;if(isRootNode(current))return[];const result=[];const map={};for(const k of kps.value)map[k.id]=k;function getAncestors(kp){const p=kp.parent_id?map[kp.parent_id]:null;if(p){result.push(p);getAncestors(p)}}getAncestors(current);const parentId=current.parent_id;if(parentId){const parent=map[parentId];if(parent){const siblings=kps.value.filter(k=>k.parent_id===parentId&&k.id!==current.id);result.push(...siblings)}}return result})
 // Questions
 const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]);
 const showQDialog=ref(false),editingQ=ref(null),qImportInput=ref(null),dupes=ref([]);
@@ -444,7 +309,7 @@ async function logout(){await apiPost('/api/auth/logout',{});window.location.hre
 
 // Subjects
 async function fetchSubjects(){subjects.value=await apiGet('/api/admin/subjects')||[]}
-async function saveSubject(){if(!subjForm.value.name&&!subjForm.value.name_cn)return;await apiPost('/api/admin/subjects',{name:subjForm.value.name,name_cn:subjForm.value.name_cn||null,description:subjForm.value.description||null});subjForm.value={name_cn:'',name:'',description:''};showSubjDialog.value=false;fetchSubjects()}
+async function createSubject(){if(!subjName.value)return;await apiPost('/api/admin/subjects',{name:subjName.value,description:subjDesc.value||null});subjName.value='';subjDesc.value='';fetchSubjects()}
 async function removeSubject(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/subjects/'+id);fetchSubjects()}
 
 // KPs
@@ -452,27 +317,14 @@ async function fetchKPs(){const sid=kpSubjectId.value;const url=sid?'/api/admin/
 async function loadAllKps(){allKps.value=await apiGet('/api/admin/knowledge-points')||[]}
 async function saveKp(){const f=kpForm.value;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content||null,level_type:f.level_type,sort_order:Number(f.sort_order),alias:f.alias||null,parent_id:f.parent_id||null};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
 function editKp(k){editingKp.value=k;kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content||'',level_type:k.level_type||'knowledge_point',sort_order:k.sort_order||0,alias:k.alias||'',parent_id:k.parent_id||null};showKpDialog.value=true}
-function addChildKp(parent){editingKp.value=null;kpForm.value={subject_id:parent.subject_id||'',title:'',content:'',level_type:getDefaultChildLevel(parent.level_type),sort_order:0,alias:'',parent_id:parent.id};showKpDialog.value=true}
-function getDefaultChildLevel(parentLevel){
-const map={root:['module','domain','subject_area','chapter','unit','section','concept','lesson','knowledge_point'],module:['chapter','unit','section','concept','lesson','knowledge_point'],domain:['chapter','unit','section','concept','lesson','knowledge_point'],subject_area:['chapter','unit','section','concept','lesson','knowledge_point'],chapter:['section','concept','lesson','knowledge_point'],unit:['section','concept','lesson','knowledge_point'],section:['knowledge_point'],concept:['knowledge_point'],lesson:['knowledge_point'],knowledge_point:['knowledge_point']};
-const opts=map[parentLevel]||['knowledge_point'];return opts[0]}
-const childLevelOptions=computed(()=>{if(!kpForm.value.parent_id)return[];const pid=kpForm.value.parent_id;const parent=kps.value.find(k=>k.id===pid);if(!parent)return[];const map={root:['module','domain','subject_area','chapter','unit','section','concept','lesson','knowledge_point'],module:['chapter','unit','section','concept','lesson','knowledge_point'],domain:['chapter','unit','section','concept','lesson','knowledge_point'],subject_area:['chapter','unit','section','concept','lesson','knowledge_point'],chapter:['section','concept','lesson','knowledge_point'],unit:['section','concept','lesson','knowledge_point'],section:['knowledge_point'],concept:['knowledge_point'],lesson:['knowledge_point'],knowledge_point:['knowledge_point']};return map[parent.level_type]||[]})
-async function deleteKp(){if(hasChildren(editingKp.value)){alert('该知识点下有子节点，无法删除');return}if(!confirm('确定要删除该知识点吗？'))return;await apiDelete('/api/admin/knowledge-points/'+editingKp.value.id);showKpDialog.value=false;fetchKPs();loadAllKps()}
 async function removeKp(id){if(!confirm('Delete?'))return;await apiDelete('/api/admin/knowledge-points/'+id);fetchKPs();loadAllKps()}
 function getKpParentName(pid){if(!pid)return null;const k=kps.value.find(x=>x.id===pid);return k?k.title:null}
-function getKpTitle(pid){if(!pid)return'';const k=kps.value.find(x=>x.id===pid);return k?k.title:''}
-function getKpLevelType(pid){if(!pid)return'';const k=kps.value.find(x=>x.id===pid);return k?k.level_type:''}
-function handleUploadClick(){if(!kpImportSubjectId.value){alert('请先选择科目');return}kpImportFileInput.value.click()}
-async function handleKpImportFile(e){
-const f=e.target.files?.[0];if(!f)return;const text=await f.text();kpImportJson.value=text;kpImportFileLoaded.value=true;e.target.value=''}
-function resetKpImport(){kpImportFileLoaded.value=false;kpImportJson.value='';kpImportResult.value=null}
 async function doKpImport(){
-if(!kpImportJson.value.trim()){alert('请先上传文件');return}
+if(!kpImportSubjectId.value){alert('Select a subject first');return}
 let input;try{input=JSON.parse(kpImportJson.value.trim());if(Array.isArray(input))input={subject_id:kpImportSubjectId.value,items:input}}catch{alert('Invalid JSON');return}
-if(!kpImportSubjectId.value&&!input.subject_id){alert('请先选择科目');return}
 const d=await apiPost('/api/admin/knowledge-points/import',{subject_id:input.subject_id||kpImportSubjectId.value,items:input.items||input});
 kpImportResult.value=d;fetchKPs();loadAllKps();
-if(d.errors&&d.errors.length>0){kpImportErrorsDialog.value=true}}
+}
 
 // Questions
 async function fetchQuestions(){
@@ -497,8 +349,8 @@ async function deleteUser(id,username){if(!confirm('Delete user "'+username+'" a
 
 onMounted(async()=>{await checkAuth();await fetchSubjects();await fetchKPs();await loadAllKps();await fetchQuestions();await fetchUsers()});
 return{tab,user,logout,window,
-subjects,subjName,subjDesc,removeSubject,showSubjDialog,subjForm,saveSubject,
-kps,kpSubjectId,kpLevelFilter,treeRows,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,addChildKp,removeKp,deleteKp,fetchKPs,getKpParentName,getKpTitle,getKpLevelType,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,kpImportFileInput,kpImportFileLoaded,handleUploadClick,handleKpImportFile,resetKpImport,doKpImport,kpImportErrorsDialog,toggleNode,isRootNode,isLeafNode,getKpTypeLabel,parentOptions,hasChildren,childLevelOptions,
+subjects,subjName,subjDesc,createSubject,removeSubject,
+kps,kpSubjectId,kpLevelFilter,treeRows,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,removeKp,fetchKPs,getKpParentName,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,doKpImport,toggleNode,
 qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,qImportInput,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,triggerQImport,handleQImport,fetchQuestions,checkDedup,
 uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers};
 }}).mount('#app');</script>

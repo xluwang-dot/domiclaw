@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [{"source": "register_tool_function", "target": "tool_calling_system", "relation": "conceptually_related_to", "confidence": "INFERRED", "confidence_score": 0.8, "source_file": "graphify-out/memory/query_20260429_093215_explain_registertool.md", "source_location": null, "weight": 1.0}], "hyperedges": []}
