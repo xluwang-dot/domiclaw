@@ -57,6 +57,7 @@ import {
   bulkImportQuestionsAdmin,
   getUserProfile,
   deleteUserCascade,
+  getDatabase,
 } from "../db.js";
 import {
   ASSISTANT_NAME,
@@ -920,64 +921,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     res.json({ id, title });
   });
 
-  function importKpPath(
-    subjectId: number, path: string[], content: string | null,
-    alias: string | undefined, levelTypes: string | string[] | undefined,
-  ): { created: number; reused: number; error?: string } {
-    const defaultLevels = ["root", "module", "chapter", "knowledge_point"];
-    let levels: string[];
-    if (typeof levelTypes === "string") {
-      // Single string: use defaults for intermediate levels, string for the last
-      levels = defaultLevels.slice(0, path.length - 1);
-      levels.push(levelTypes as string);
-    } else if (Array.isArray(levelTypes)) {
-      levels = levelTypes;
-    } else {
-      levels = defaultLevels.slice(0, path.length);
-    }
-    if (levels.length !== path.length) {
-      return { created: 0, reused: 0, error: `level_types length (${levels.length}) must match path length (${path.length})` };
-    }
-
-    let parentId: number | null = null;
-    let created = 0;
-    let reused = 0;
-    const sortCounters = new Map<number | string, number>(); // parentKey → next sort_order
-
-    for (let depth = 0; depth < path.length; depth++) {
-      const title = path[depth];
-      const levelType = levels[depth];
-      const parentLevel = depth === 0 ? null : levels[depth - 1];
-      const validation = validateKnowledgePointLevel(parentLevel, levelType);
-      if (!validation.ok) {
-        return { created, reused, error: `at depth ${depth}: ${validation.error}` };
-      }
-
-      const existing = searchKnowledgePoints(title, subjectId);
-      const existingUnderParent = existing.find(
-        (kp) => kp.title === title && kp.parent_id === parentId,
-      );
-
-      if (existingUnderParent) {
-        parentId = existingUnderParent.id;
-        reused++;
-      } else {
-        const parentKey = parentId ?? `subj-${subjectId}`;
-        const sortOrder = (sortCounters.get(parentKey) ?? 0);
-        sortCounters.set(parentKey, sortOrder + 1);
-        const nodeId = addKnowledgePoint(
-          subjectId, title, depth === path.length - 1 ? content : null,
-          parentId, levelType, sortOrder,
-          depth === path.length - 1 ? alias : undefined,
-        );
-        parentId = nodeId;
-        created++;
-      }
-    }
-    return { created, reused };
-  }
-
-  // Batch import knowledge points (path format only)
+  // Batch import knowledge points (parent_leveltype format)
   app.post("/api/admin/knowledge-points/import", requireAuth, requireAdmin, (req: Request, res: Response) => {
     const { subject_id, items } = req.body as { subject_id: unknown; items: unknown };
     const subjectId = typeof subject_id === "number" ? subject_id : Number(subject_id);
@@ -1000,24 +944,95 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     let reused = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i] as Record<string, unknown>;
-      const path = item.path as string[];
-      const content = (item.content as string) || null;
-      const alias = item.alias as string | undefined;
-      const levelTypes = item.level_types as string | string[] | undefined;
+    // Find the root node for this subject
+    const rootKp = searchKnowledgePoints("", subjectId).find((kp) => kp.parent_id === null && kp.level_type === "root");
+    if (!rootKp) {
+      res.status(500).json({ error: `Root knowledge point not found for subject ${subjectId}` });
+      return;
+    }
 
-      if (!Array.isArray(path) || path.length === 0) {
-        errors.push(`Item ${i}: path is required and must be a non-empty array`);
+    // Sort items by level for proper insertion order
+    const levelOrder = ["module", "domain", "subject_area", "chapter", "unit", "section", "concept", "lesson", "knowledge_point"];
+    const sortedItems = [...items].sort((a, b) => {
+      const aType = (a as Record<string, unknown>).level_type as string;
+      const bType = (b as Record<string, unknown>).level_type as string;
+      const aIdx = levelOrder.indexOf(aType);
+      const bIdx = levelOrder.indexOf(bType);
+      return aIdx - bIdx;
+    });
+
+    // Map to track created nodes
+    const createdNodes: Record<string, number> = {}; // "levelType:title" -> id
+    const sortCounters = new Map<number | string, number>();
+
+    for (const item of sortedItems) {
+      const record = item as Record<string, unknown>;
+      const title = record.title as string;
+      const levelType = record.level_type as string;
+      const parentLevelType = record.parent_leveltype as string | null;
+      const parentTitle = record.parent_title as string | null;
+      const content = (record.content as string) || null;
+      const alias = record.alias as string | undefined;
+
+      if (!title || !levelType) {
+        errors.push(`Item missing title or level_type`);
         continue;
       }
 
-      const result = importKpPath(subjectId, path, content, alias, levelTypes);
-      if (result.error) {
-        errors.push(`Item ${i} ["${path.join('","')}"] ${result.error}`);
+      // Find parent ID
+      let parentId: number | null = null;
+      if (parentLevelType === "root" || parentLevelType === null) {
+        parentId = rootKp.id;
+      } else {
+        const parentKey = `${parentLevelType}:${parentTitle}`;
+        const parentIdFromMap = createdNodes[parentKey];
+        if (parentIdFromMap) {
+          parentId = parentIdFromMap;
+        } else {
+          // Try to find by exact title + level_type match from database
+          const possibleParents = Object.entries(createdNodes)
+            .filter(([key]) => key.startsWith(`${parentLevelType}:`))
+            .map(([, id]) => id);
+          if (possibleParents.length > 0) {
+            // Query database for exact match
+            const db = getDatabase();
+            const exactMatch = db.prepare(
+              "SELECT id FROM knowledge_points WHERE subject_id = ? AND title = ? AND level_type = ?"
+            ).get(subjectId, parentTitle, parentLevelType) as { id: number } | undefined;
+            parentId = exactMatch?.id || possibleParents[0];
+          }
+        }
       }
-      created += result.created;
-      reused += result.reused;
+
+      if (parentId === null) {
+        errors.push(`Item "${title}": cannot find parent "${parentTitle}" (${parentLevelType})`);
+        continue;
+      }
+
+      // Check if already exists
+      const existing = searchKnowledgePoints(title, subjectId);
+      const existingUnderParent = existing.find(
+        (kp) => kp.title === title && kp.parent_id === parentId,
+      );
+
+      const nodeKey = `${levelType}:${title}`;
+      if (existingUnderParent) {
+        createdNodes[nodeKey] = existingUnderParent.id;
+        reused++;
+      } else {
+        const parentKey = parentId ?? `subj-${subjectId}`;
+        const sortOrder = (sortCounters.get(parentKey) ?? 0);
+        sortCounters.set(parentKey, sortOrder + 1);
+
+        const nodeId = addKnowledgePoint(
+          subjectId, title, content,
+          parentId, levelType, sortOrder,
+          alias,
+        );
+
+        createdNodes[nodeKey] = nodeId;
+        created++;
+      }
     }
 
     res.json({

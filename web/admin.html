@@ -317,21 +317,44 @@ tr:hover{background:rgba(0,0,0,0.03)}
   "subject_id": 1,
   "items": [
     {
-      "path": ["根节点", "子节点", ...],
+      "title": "数与式",
+      "level_type": "module",
+      "parent_leveltype": "root",
+      "parent_title": null,
       "content": "知识点内容",
-      "alias": "english_alias",
-      "level_types": "module|chapter|knowledge_point"
+      "alias": "english_alias"
+    },
+    {
+      "title": "有理数",
+      "level_type": "chapter",
+      "parent_leveltype": "module",
+      "parent_title": "数与式",
+      "content": null,
+      "alias": null
+    },
+    {
+      "title": "绝对值",
+      "level_type": "knowledge_point",
+      "parent_leveltype": "chapter",
+      "parent_title": "有理数",
+      "content": "绝对值是指...",
+      "alias": "absolute_value"
     }
   ]
 }</pre>
-• path：标题数组，从根节点到目标节点的完整路径（必填）。<br>
-• level_types：层级类型（必填）<br>
+• title：节点标题（必填）<br>
+• level_type：节点级别（必填），可选 module/domain/subject_area/chapter/unit/section/concept/lesson/knowledge_point<br>
+• parent_leveltype：父节点的 level_type（顶级为 null）<br>
+• parent_title：父节点标题（用于精确匹配父节点）<br>
+• content：知识点内容（可选）<br>
+• alias：英文别名（可选）<br>
 <b>知识点的层级关系：</b><br>
-root：学科根节点<br>
+root：学科根节点（系统自动创建，无需导入）<br>
 module/domain/subject_area：模块节点；<br>
 chapter/unit：章节点；<br>
-section/concept/lesson → 课节点；<br>
-knowledge_point → 知识点；
+section/concept/lesson：课节点；<br>
+knowledge_point：知识点；<br>
+<b>导入流程：</b>先导入模块/章节，再根据 parent_leveltype + parent_title 匹配父节点
 </div>
 <div class="form-row" style="justify-content:flex-end;gap:8px;align-items:flex-end">
 <template v-if="!kpImportFileLoaded">
