@@ -146,6 +146,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <button class="btn btn-blue" @click="showQDialog=true;editingQ=null">+ Add</button>
 <input type="file" ref="qImportInput" accept=".json,.csv" style="display:none" @change="handleQImport" />
 <button class="btn btn-gray" @click="triggerQImport">Import JSON</button>
+<button class="btn btn-green" @click="showExImport=true">Import Exercises</button>
 </div>
 <table v-if="qList.length"><thead><tr><th>ID</th><th>Question</th><th>Type</th><th>Status</th><th>User</th><th>Actions</th></tr></thead>
 <tbody><tr v-for="q in qList" :key="q.id">
@@ -410,6 +411,58 @@ knowledge_point：知识点；<br>
 <button class="btn-sm btn-blue" @click="saveQ">Save</button></div>
 </div></div>
 
+<!-- Exercise Import Dialog -->
+<div v-if="showExImport" class="dialog-overlay" @click.self="showExImport=false"><div class="dialog" style="width:720px">
+<div class="dialog-header">
+<h3>Import Exercises</h3>
+<button class="dialog-close" @click="showExImport=false;resetExImport()">✕</button>
+</div>
+<div v-if="!exImportFileLoaded" style="background:#f8f8f8;border-radius:8px;padding:14px;margin-bottom:14px;font-size:12px;line-height:1.6;color:#333">
+<b>导入习题 JSON 文件，格式如下：</b>
+<pre style="background:#2d2d2d;color:#8c8;padding:8px;border-radius:4px;overflow-x:auto;font-size:11px">{
+  "chapter_cn": "有理数",
+  "stem": {"text": "题目内容...", "options": ["A． ...", "B． ..."]},
+  "answer": "答案",
+  "analysis": "分析...",
+  "solution": "解答...",
+  "type": "choice",
+  "knowledge_points": ["知识点名称"]
+}</pre>
+• type：choice / multiple_choice / fill / calculate / proof / essay<br>
+• knowledge_points：知识点名称数组（可选）
+</div>
+<div class="form-row" style="justify-content:flex-end;gap:8px;align-items:flex-end">
+<template v-if="!exImportFileLoaded">
+<select v-model="exImportSubjectId"><option value="">Select subject</option>
+<option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name_cn||s.name}}</option></select>
+<input type="file" ref="exImportFileInput" accept=".json" style="display:none" @change="handleExImportFile" />
+<button class="btn btn-red" @click="handleExUploadClick">上传 JSON 文件</button>
+</template>
+<template v-else>
+<textarea v-model="exImportJson" style="flex:1;min-height:200px" readonly></textarea>
+</template>
+</div>
+<div v-if="exImportResult" style="font-size:13px;margin-top:8px;padding:12px;background:#f0f8f0;border-radius:4px;border:1px solid #3a8">
+成功导入 <b style="color:#3a8">{{exImportResult.imported||0}}</b> 条，跳过 <b style="color:#ca8">{{exImportResult.reused||0}}</b> 条，失败 <b style="color:#e05555">{{exImportResult.errors?exImportResult.errors.length:0}}</b> 条
+<span v-if="exImportResult.errors&&exImportResult.errors.length>0" style="color:#0a84ff;cursor:pointer;text-decoration:underline;margin-left:8px" @click="exImportErrorsDialog=true">查看详情</span>
+</div>
+<div class="dialog-actions" style="justify-content:flex-end;gap:8px">
+<template v-if="exImportFileLoaded">
+<button class="btn-sm btn-gray" @click="resetExImport">取消</button>
+<button class="btn-sm btn-blue" @click="doExImport">确认导入</button>
+</template>
+</div>
+</div></div>
+
+<!-- Ex Import Errors Dialog -->
+<div v-if="exImportErrorsDialog" class="dialog-overlay" @click.self="exImportErrorsDialog=false"><div class="dialog" style="width:500px">
+<h3>导入失败详情</h3>
+<div style="max-height:300px;overflow-y:auto;font-size:12px;color:#e05555;white-space:pre-wrap">
+<div v-for="(e,i) in exImportResult.errors" :key="i">{{e}}</div>
+</div>
+<div class="dialog-actions"><button class="btn-sm btn-gray" @click="exImportErrorsDialog=false">关闭</button></div>
+</div></div>
+
 <!-- User Profile Dialog -->
 <div v-if="showProfileDialog" class="dialog-overlay" @click.self="showProfileDialog=false"><div class="dialog">
 <h3>User Profile</h3>
@@ -448,6 +501,7 @@ const parentOptions=computed(()=>{if(!editingKp.value)return kps.value;const cur
 // Questions
 const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]);
 const showQDialog=ref(false),editingQ=ref(null),qImportInput=ref(null),dupes=ref([]);
+const showExImport=ref(false),exImportJson=ref(''),exImportFileLoaded=ref(false),exImportResult=ref(null),exImportErrorsDialog=ref(false),exImportFileInput=ref(null),exImportSubjectId=ref('');
 const qForm=ref({question_text:'',answer:'',explanation:'',question_type:'short_answer',options:'',difficulty:1,knowledge_point_id:null,status:'draft'});
 // Users
 const uList=ref([]),uTotal=ref(0),uPage=ref(1),uSearch=ref('');
@@ -510,6 +564,10 @@ async function toggleQStatus(id){await apiPost('/api/admin/questions/'+id+'/togg
 function triggerQImport(){qImportInput.value?.click()}
 async function handleQImport(e){const f=e.target.files?.[0];if(!f)return;const text=await f.text();let items;try{items=JSON.parse(text)}catch{items=text.split('\n').filter(l=>l.trim()).map(l=>{const p=l.split(',');return{question_text:p[0],answer:p[1],question_type:p[2]||'short_answer'}})}
 const d=await apiPost('/api/admin/questions/import',items);alert('Imported '+d.imported+' question(s)');fetchQuestions();e.target.value=''}
+async function handleExImportFile(e){const f=e.target.files?.[0];if(!f)return;const text=await f.text();exImportJson.value=text;exImportFileLoaded.value=true;e.target.value=''}
+function resetExImport(){exImportFileLoaded.value=false;exImportJson.value='';exImportResult.value=null;exImportSubjectId.value=''}
+function handleExUploadClick(){if(!exImportSubjectId.value){alert('请先选择科目');return}exImportFileInput.value.click()}
+async function doExImport(){if(!exImportJson.value.trim()){alert('请先上传文件');return}let items;try{items=JSON.parse(exImportJson.value.trim())}catch{alert('Invalid JSON');return}const d=await apiPost('/api/admin/questions/import-exercises',items);exImportResult.value=d;if(d.errors&&d.errors.length>0){exImportErrorsDialog.value=true}}
 async function checkDedup(){const t=qForm.value.question_text;if(t.length<10){dupes.value=[];return};dupes.value=await apiGet('/api/admin/questions/dedup?text='+encodeURIComponent(t.substring(0,80)))||[]}
 
 // Users
@@ -522,20 +580,24 @@ onMounted(async()=>{await checkAuth();await fetchSubjects();await fetchKPs();awa
 return{tab,user,logout,window,
 subjects,subjName,subjDesc,removeSubject,showSubjDialog,subjForm,saveSubject,
 kps,kpSubjectId,kpLevelFilter,treeRows,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,addChildKp,removeKp,deleteKp,fetchKPs,getKpParentName,getKpTitle,getKpLevelType,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,kpImportFileInput,kpImportFileLoaded,handleUploadClick,handleKpImportFile,resetKpImport,doKpImport,kpImportErrorsDialog,toggleNode,isRootNode,isLeafNode,getKpTypeLabel,parentOptions,hasChildren,childLevelOptions,
-qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,qImportInput,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,triggerQImport,handleQImport,fetchQuestions,checkDedup,
+qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,qImportInput,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,triggerQImport,handleQImport,fetchQuestions,checkDedup,showExImport,exImportJson,exImportFileLoaded,exImportResult,exImportErrorsDialog,exImportFileInput,exImportSubjectId,handleExUploadClick,handleExImportFile,resetExImport,doExImport,
 uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers};
 }}).mount('#app');</script>
 <button class="bug-btn" onclick="toggleBug()" title="Report Bug">&#x1F41B;</button>
 <div class="bug-modal" id="bugModal" style="display:none" onclick="if(event.target===this)toggleBug()">
-<div class="bug-dialog"><h3>&#x1F41B; Report Bug</h3>
-<input id="bugTitle" placeholder="Bug title" /><textarea id="bugDesc" placeholder="Description (optional)"></textarea>
+<div class="bug-dialog"><h3>&#x1F41B; 反馈</h3>
+<select id="bugType" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ccc;font-size:13px;margin-bottom:10px;outline:none">
+<option value="bug">&#x1F41B; 上报 Bug</option>
+<option value="idea">&#x1F4A1; 新增创意</option>
+</select>
+<input id="bugTitle" placeholder="标题" /><textarea id="bugDesc" placeholder="描述（可选）"></textarea>
 <div class="bug-meta" id="bugMeta"></div>
 <div class="bug-actions">
-<button onclick="toggleBug()" style="padding:6px 14px;border-radius:6px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;font-size:13px">Cancel</button>
-<button onclick="submitBug()" style="padding:6px 14px;border-radius:6px;border:none;background:#0a84ff;color:#fff;cursor:pointer;font-size:13px">Submit</button></div></div></div>
+<button onclick="toggleBug()" style="padding:6px 14px;border-radius:6px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;font-size:13px">取消</button>
+<button onclick="submitBug()" style="padding:6px 14px;border-radius:6px;border:none;background:#0a84ff;color:#fff;cursor:pointer;font-size:13px">提交</button></div></div></div>
 <script>
 function toggleBug(){var m=document.getElementById('bugModal');m.style.display=m.style.display==='none'?'flex':'none';if(m.style.display==='flex'){document.getElementById('bugMeta').textContent=location.href+' | '+navigator.userAgent.substring(0,80)+' | '+new Date().toISOString()}}
-async function submitBug(){var t=document.getElementById('bugTitle').value.trim();if(!t){alert('Title required');return};var d=document.getElementById('bugDesc').value.trim();var p=document.getElementById('bugMeta').textContent;var r=await fetch('/api/bug-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,description:d,page:p})});var j=await r.json();if(j.id){alert('Bug #'+j.id+' reported. Thanks!');toggleBug();document.getElementById('bugTitle').value='';document.getElementById('bugDesc').value=''}else{alert('Failed: '+(j.error||'unknown'))}}
+async function submitBug(){var t=document.getElementById('bugTitle').value.trim();if(!t){alert('Title required');return};var d=document.getElementById('bugDesc').value.trim();var p=document.getElementById('bugMeta').textContent;var tp=document.getElementById('bugType').value;var r=await fetch('/api/bug-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,description:d,page:p,type:tp})});var j=await r.json();if(j.id){alert(tp==='idea'?'创意已提交！':'Bug #'+j.id+' 已提交！');toggleBug();document.getElementById('bugTitle').value='';document.getElementById('bugDesc').value=''}else{alert('Failed: '+(j.error||'unknown'))}}
 </script>
 </body>
 </html>

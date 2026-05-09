@@ -556,7 +556,7 @@ export function addQuestion(
   examPaperId: number | null, knowledgePointId: number | null,
   questionText: string, answer: string, questionType: string,
   explanation?: string, difficulty?: number, options?: string,
-  knowledgePointIds?: string,
+  knowledgePointIds?: string | null,
 ): number {
   const result = db.prepare(
     `INSERT INTO questions (exam_paper_id, knowledge_point_id, knowledge_point_ids,
@@ -838,10 +838,11 @@ export function findDuplicateQuestions(text: string): { id: number; question_tex
   // Simple similarity: find questions whose text shares at least 60% common words
   const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 1);
   if (words.length === 0) return [];
-  const likePattern = words.slice(0, 3).map(w => `%${w}%`).join(" OR question_text LIKE ");
+  const patterns = words.slice(0, 3).map(w => `%${w}%`);
+  const placeholders = patterns.map(() => "question_text LIKE ?").join(" OR ");
   return db.prepare(
-    `SELECT id, question_text FROM questions WHERE question_text LIKE ${likePattern} LIMIT 10`,
-  ).all(...words.slice(0, 3).map(w => `%${w}%`)) as { id: number; question_text: string }[];
+    `SELECT id, question_text FROM questions WHERE ${placeholders} LIMIT 10`,
+  ).all(...patterns) as { id: number; question_text: string }[];
 }
 
 export function bulkImportQuestionsAdmin(

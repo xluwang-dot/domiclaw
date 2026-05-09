@@ -566,31 +566,56 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
   // POST /api/bug-report
   app.post("/api/bug-report", requireAuth, (req: Request, res: Response) => {
-    const { title, description, page } = req.body as Record<string, unknown>;
+    const { title, description, page, type } = req.body as Record<string, unknown>;
     if (!title || typeof title !== "string") {
       res.status(400).json({ error: "title required" });
       return;
     }
 
-    const buglistPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../buglist.md");
-    let content = "";
-    try { content = fs.readFileSync(buglistPath, "utf-8"); } catch { /* file doesn't exist yet */ }
+    const entriesDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../tasker");
 
-    // Parse existing max bug number
-    let maxId = 0;
-    for (const line of content.split("\n")) {
-      const m = line.match(/^\|\s*(\d+)\s*\|/);
-      if (m) maxId = Math.max(maxId, parseInt(m[1], 10));
+    if (type === "idea") {
+      const ideasPath = path.join(entriesDir, "ideas.md");
+      let content = "";
+      try { content = fs.readFileSync(ideasPath, "utf-8"); } catch { /* ok */ }
+
+      // Find active table and append
+      const date = new Date().toISOString().substring(0, 10);
+      const desc = (description as string) || "";
+      const line = `| ${date} | ${title}${desc ? " — " + desc : ""} | |\n`;
+
+      // Append after the header row of "活跃创意" table
+      const tableHeader = "| 提出时间 | 简述 | 备注 |\n|----------|------|------|\n";
+      const idx = content.indexOf(tableHeader);
+      if (idx >= 0) {
+        const insertPos = idx + tableHeader.length;
+        content = content.slice(0, insertPos) + line + content.slice(insertPos);
+      } else {
+        content += "\n## 活跃创意\n\n" + tableHeader + line;
+      }
+      fs.writeFileSync(ideasPath, content, "utf-8");
+      res.json({ id: "idea" });
+    } else {
+      const buglistPath = path.join(entriesDir, "buglist.md");
+      let content = "";
+      try { content = fs.readFileSync(buglistPath, "utf-8"); } catch { /* file doesn't exist yet */ }
+
+      // Parse existing max bug number
+      let maxId = 0;
+      for (const line of content.split("\n")) {
+        const m = line.match(/^\| B(\d+)\s*\|/);
+        if (m) maxId = Math.max(maxId, parseInt(m[1], 10));
+      }
+
+      const nextId = maxId + 1;
+      const date = new Date().toISOString().substring(0, 10);
+      const pageInfo = (page as string) || "unknown";
+      const desc = (description as string) || "";
+      const line = `| B${String(nextId).padStart(4, "0")} | ${title} | P? | ${pageInfo}${desc ? " — " + desc : ""} | ${date} |\n`;
+
+      fs.appendFileSync(buglistPath, line, "utf-8");
+      res.json({ id: `B${String(nextId).padStart(4, "0")}` });
     }
-
-    const nextId = maxId + 1;
-    const date = new Date().toISOString().substring(0, 10);
-    const pageInfo = (page as string) || "unknown";
-    const desc = (description as string) || "";
-    const line = `| ${nextId} | 待修复 | 中 | ${title} | ${pageInfo}${desc ? " — " + desc : ""} | — | ${date} |\n`;
-
-    fs.appendFileSync(buglistPath, line, "utf-8");
-    res.json({ id: nextId });
   });
 
   // POST /api/quiz/create
@@ -1169,23 +1194,138 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       res.status(400).json({ error: "Request body must be a non-empty JSON array" });
       return;
     }
-    res.json(bulkImportQuestionsAdmin(items.map((q) => ({
-      question_text: q.question_text as string,
-      answer: q.answer as string,
-      question_type: q.question_type as string | undefined,
-      explanation: q.explanation as string | undefined,
-      difficulty: q.difficulty as number | undefined,
-      options: q.options as string | undefined,
-      knowledge_point_id: q.knowledge_point_id as number | undefined,
-      exam_paper_id: q.exam_paper_id as number | undefined,
-      status: q.status as string | undefined,
-    }))));
+
+    // Detect format: new (stem-based) or old (flat question_text)
+    const hasNewFormat = items.some((q) => q.stem && typeof q.stem === "object");
+
+    if (hasNewFormat) {
+      // Route to new format handler
+      const typeMap: Record<string, string> = {
+        choice: "choice", multiple_choice: "multiple_choice", fill: "fill",
+        calculate: "calculate", proof: "proof", essay: "essay",
+      };
+      const difficultyX: Record<string, number> = {
+        choice: 1, multiple_choice: 1.2, fill: 1.2, calculate: 1.5, proof: 1.8, essay: 1.5,
+      };
+      let imported = 0, reused = 0, errors: string[] = [];
+
+      for (let i = 0; i < items.length; i++) {
+        try {
+          const item = items[i] as Record<string, unknown>;
+          const stem = item.stem as Record<string, unknown> | undefined;
+          if (!stem || !stem.text) { errors.push(`Item ${i}: missing stem.text`); continue; }
+
+          const questionText = (stem.text as string).trim();
+          if (!questionText) { errors.push(`Item ${i}: empty question text`); continue; }
+
+          const existing = findDuplicateQuestions(questionText);
+          if (existing.some((q) => q.question_text === questionText)) { reused++; continue; }
+
+          const rawType = (item.type as string) || "short_answer";
+          const questionType = typeMap[rawType] || rawType;
+          const options = stem.options ? JSON.stringify(stem.options) : undefined;
+          const analysis = (item.analysis as string) || "";
+          const solution = (item.solution as string) || "";
+          const explanation = analysis + (analysis && solution ? "\n\n" : "") + solution;
+          const kps = item.knowledge_points as string[] | undefined;
+          const knowledgePointIds = kps && kps.length > 0 ? JSON.stringify(kps) : undefined;
+          const x = difficultyX[rawType] || 1;
+          const y = kps ? kps.length : 0;
+          const difficulty = Math.round(x * y) || 1;
+
+          addQuestion(null, null, questionText, item.answer as string, questionType,
+            explanation, difficulty, options, knowledgePointIds);
+          imported++;
+        } catch (e: unknown) {
+          errors.push(`Item ${i}: ${e instanceof Error ? e.message : "unknown error"}`);
+        }
+      }
+      res.json({ imported, reused, total: items.length, errors: errors.length > 0 ? errors : undefined });
+    } else {
+      // Old flat format
+      res.json(bulkImportQuestionsAdmin(items.map((q) => ({
+        question_text: q.question_text as string,
+        answer: q.answer as string,
+        question_type: q.question_type as string | undefined,
+        explanation: q.explanation as string | undefined,
+        difficulty: q.difficulty as number | undefined,
+        options: q.options as string | undefined,
+        knowledge_point_id: q.knowledge_point_id as number | undefined,
+        exam_paper_id: q.exam_paper_id as number | undefined,
+        status: q.status as string | undefined,
+      }))));
+    }
   });
 
   app.get("/api/admin/questions/dedup", requireAuth, requireAdmin, (req: Request, res: Response) => {
     const text = req.query.text as string;
     if (!text) { res.json([]); return; }
     res.json(findDuplicateQuestions(text));
+  });
+
+  // Batch import exercises (structured format with stem, analysis, solution, etc.)
+  app.post("/api/admin/questions/import-exercises", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const items = req.body as Record<string, unknown>[];
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: "Request body must be a non-empty JSON array" });
+      return;
+    }
+
+    const typeMap: Record<string, string> = {
+      choice: "choice", multiple_choice: "multiple_choice", fill: "fill",
+      calculate: "calculate", proof: "proof", essay: "essay",
+    };
+    const difficultyX: Record<string, number> = {
+      choice: 1, multiple_choice: 1.2, fill: 1.2, calculate: 1.5, proof: 1.8, essay: 1.5,
+    };
+
+    let imported = 0, reused = 0, errors: string[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      try {
+        const item = items[i] as Record<string, unknown>;
+        const stem = item.stem as Record<string, unknown> | undefined;
+        if (!stem || !stem.text) { errors.push(`Item ${i}: missing stem.text`); continue; }
+
+        const questionText = (stem.text as string).trim();
+        if (!questionText) { errors.push(`Item ${i}: empty question text`); continue; }
+
+        // Dedup: check exact question_text
+        const existing = findDuplicateQuestions(questionText);
+        if (existing.some((q) => q.question_text === questionText)) {
+          reused++;
+          continue;
+        }
+
+        const rawType = (item.type as string) || "short_answer";
+        const questionType = typeMap[rawType] || rawType;
+
+        // Options
+        const optionsRaw = stem.options ? JSON.stringify(stem.options) : undefined;
+
+        // Explanation: merge analysis + solution
+        const analysis = (item.analysis as string) || "";
+        const solution = (item.solution as string) || "";
+        const explanation = analysis + (analysis && solution ? "\n\n" : "") + solution;
+
+        // Knowledge points
+        const kps = item.knowledge_points as string[] | undefined;
+        const knowledgePointIds = kps && kps.length > 0 ? JSON.stringify(kps) : undefined;
+
+        // Difficulty
+        const x = difficultyX[rawType] || 1;
+        const y = kps ? kps.length : 0;
+        const difficulty = Math.round(x * y) || 1;
+
+        addQuestion(null, null, questionText, item.answer as string, questionType,
+          explanation, difficulty, optionsRaw, knowledgePointIds);
+        imported++;
+      } catch (e: unknown) {
+        errors.push(`Item ${i}: ${e instanceof Error ? e.message : "unknown error"}`);
+      }
+    }
+
+    res.json({ imported, reused, total: items.length, errors: errors.length > 0 ? errors : undefined });
   });
 
   // ---------- File serving ----------
