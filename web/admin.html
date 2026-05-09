@@ -147,7 +147,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <button class="btn btn-blue" @click="showQDialog=true;editingQ=null">+ Add</button>
 <input type="file" ref="qImportInput" accept=".json,.csv" style="display:none" @change="handleQImport" />
 <button class="btn btn-gray" @click="triggerQImport">Import JSON</button>
-<button class="btn btn-green" @click="showExImport=true">Import Exercises</button>
+<button class="btn btn-green" @click="showExImport=true">Import Questions</button>
 </div>
 <table v-if="qList.length"><thead><tr><th>ID</th><th>Question</th><th>Type</th><th>Status</th><th>User</th><th>Actions</th></tr></thead>
 <tbody><tr v-for="q in qList" :key="q.id">
@@ -604,7 +604,7 @@ const d=await apiPost('/api/admin/questions/import',items);alert('Imported '+d.i
 async function handleExImportFile(e){const f=e.target.files?.[0];if(!f)return;const text=await f.text();exImportJson.value=text;exImportFileLoaded.value=true;e.target.value=''}
 function resetExImport(){exImportFileLoaded.value=false;exImportJson.value='';exImportResult.value=null;exImportSubjectId.value=''}
 function handleExUploadClick(){if(!exImportSubjectId.value){alert('请先选择科目');return}exImportFileInput.value.click()}
-async function doExImport(){if(!exImportJson.value.trim()){alert('请先上传文件');return}let items;try{items=JSON.parse(exImportJson.value.trim())}catch{alert('Invalid JSON');return}const d=await apiPost('/api/admin/questions/import-exercises',items);exImportResult.value=d;if(d.errors&&d.errors.length>0){exImportErrorsDialog.value=true}}
+async function doExImport(){if(!exImportJson.value.trim()){alert('请先上传文件');return}let items;try{items=JSON.parse(exImportJson.value.trim())}catch{alert('Invalid JSON');return}const d=await apiPost('/api/admin/questions/import-exercises',items);exImportResult.value=d;fetchQuestions();if(d.errors&&d.errors.length>0){exImportErrorsDialog.value=true}}
 async function checkDedup(){const t=qForm.value.question_text;if(t.length<10){dupes.value=[];return};dupes.value=await apiGet('/api/admin/questions/dedup?text='+encodeURIComponent(t.substring(0,80)))||[]}
 
 // Users

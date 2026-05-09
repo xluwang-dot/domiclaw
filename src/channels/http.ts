@@ -1238,11 +1238,18 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           const explanation = analysis + (analysis && solution ? "\n\n" : "") + solution;
           const kps = item.knowledge_points as string[] | undefined;
           const knowledgePointIds = kps && kps.length > 0 ? JSON.stringify(kps) : undefined;
+          let knowledgePointId2: number | null = null;
+          if (kps && kps.length > 0) {
+            const kpRow2 = getDatabase().prepare(
+              "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1 LIMIT 1"
+            ).get(kps[0]) as { id: number } | undefined;
+            knowledgePointId2 = kpRow2?.id || null;
+          }
           const x = difficultyX[rawType] || 1;
           const y = kps ? kps.length : 0;
           const difficulty = Math.round(x * y) || 1;
 
-          addQuestion(null, null, questionText, item.answer as string, questionType,
+          addQuestion(null, knowledgePointId2, questionText, item.answer as string, questionType,
             explanation, difficulty, options, knowledgePointIds);
           const qId = getDatabase().prepare(
             "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
@@ -1338,13 +1345,20 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         // Knowledge points
         const kps = item.knowledge_points as string[] | undefined;
         const knowledgePointIds = kps && kps.length > 0 ? JSON.stringify(kps) : undefined;
+        let knowledgePointId: number | null = null;
+        if (kps && kps.length > 0) {
+          const kpRow = getDatabase().prepare(
+            "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1 LIMIT 1"
+          ).get(kps[0]) as { id: number } | undefined;
+          knowledgePointId = kpRow?.id || null;
+        }
 
         // Difficulty
         const x = difficultyX[rawType] || 1;
         const y = kps ? kps.length : 0;
         const difficulty = Math.round(x * y) || 1;
 
-        addQuestion(null, null, questionText, item.answer as string, questionType,
+        addQuestion(null, knowledgePointId, questionText, item.answer as string, questionType,
           explanation, difficulty, optionsRaw, knowledgePointIds);
         const questionId = getDatabase().prepare(
           "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
