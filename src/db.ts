@@ -57,6 +57,25 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON knowledge_points(subject_id, level_type);
     CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON knowledge_points(parent_id, sort_order);
 
+    CREATE TABLE IF NOT EXISTS exercise_points (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_id INTEGER NOT NULL REFERENCES subjects(id),
+      name TEXT NOT NULL,
+      UNIQUE(subject_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS exercise_point_knowledge_points (
+      exercise_point_id INTEGER NOT NULL REFERENCES exercise_points(id) ON DELETE CASCADE,
+      knowledge_point_id INTEGER NOT NULL REFERENCES knowledge_points(id) ON DELETE CASCADE,
+      PRIMARY KEY (exercise_point_id, knowledge_point_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS exercise_point_questions (
+      exercise_point_id INTEGER NOT NULL REFERENCES exercise_points(id) ON DELETE CASCADE,
+      question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      PRIMARY KEY (exercise_point_id, question_id)
+    );
+
     CREATE TABLE IF NOT EXISTS exam_papers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL,
@@ -535,6 +554,32 @@ export function updateKnowledgePoint(
 export function deleteKnowledgePoint(id: number): boolean {
   const result = db.prepare("DELETE FROM knowledge_points WHERE id = ?").run(id);
   return result.changes > 0;
+}
+
+// ============== Exercise point queries ==============
+
+export function addExercisePoint(subjectId: number, name: string): number {
+  const result = db.prepare(
+    "INSERT OR IGNORE INTO exercise_points (subject_id, name) VALUES (?, ?)",
+  ).run(subjectId, name);
+  if (result.changes > 0) return result.lastInsertRowid as number;
+  return (db.prepare("SELECT id FROM exercise_points WHERE subject_id = ? AND name = ?").get(subjectId, name) as { id: number }).id;
+}
+
+export function getExercisePointById(id: number): { id: number; subject_id: number; name: string } | undefined {
+  return db.prepare("SELECT id, subject_id, name FROM exercise_points WHERE id = ?").get(id) as any;
+}
+
+export function getExercisePointByName(subjectId: number, name: string): { id: number; subject_id: number; name: string } | undefined {
+  return db.prepare("SELECT id, subject_id, name FROM exercise_points WHERE subject_id = ? AND name = ?").get(subjectId, name) as any;
+}
+
+export function linkExercisePointKnowledgePoint(exercisePointId: number, knowledgePointId: number): void {
+  db.prepare("INSERT OR IGNORE INTO exercise_point_knowledge_points (exercise_point_id, knowledge_point_id) VALUES (?, ?)").run(exercisePointId, knowledgePointId);
+}
+
+export function linkExercisePointQuestion(exercisePointId: number, questionId: number): void {
+  db.prepare("INSERT OR IGNORE INTO exercise_point_questions (exercise_point_id, question_id) VALUES (?, ?)").run(exercisePointId, questionId);
 }
 
 // ============== Exam paper queries ==============

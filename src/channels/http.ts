@@ -58,6 +58,10 @@ import {
   getUserProfile,
   deleteUserCascade,
   getDatabase,
+  addExercisePoint,
+  getExercisePointByName,
+  linkExercisePointKnowledgePoint,
+  linkExercisePointQuestion,
 } from "../db.js";
 import {
   ASSISTANT_NAME,
@@ -1326,6 +1330,71 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     }
 
     res.json({ imported, reused, total: items.length, errors: errors.length > 0 ? errors : undefined });
+  });
+
+  // Migrate: import exercise points and link to questions and knowledge points
+  app.post("/api/admin/exercise-points/migrate", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const storeDir = path.join(path.dirname(new URL(import.meta.url).pathname), "../../store");
+
+    let exercises: unknown[], mapping: Record<string, string[]>;
+    try {
+      exercises = JSON.parse(fs.readFileSync(path.join(storeDir, "exercises_with_knowledge_points.json"), "utf-8"));
+      mapping = JSON.parse(fs.readFileSync(path.join(storeDir, "knowledge_points_mapping.json"), "utf-8"));
+    } catch {
+      res.status(500).json({ error: "Cannot read store JSON files" });
+      return;
+    }
+
+    const db = getDatabase();
+    let epCreated = 0, kpLinks = 0, qLinks = 0, errors: string[] = [];
+
+    const uniquePointNames = Object.keys(mapping);
+    const pointNameToId: Record<string, number> = {};
+
+    for (const name of uniquePointNames) {
+      try {
+        const epId = addExercisePoint(1, name);
+        pointNameToId[name] = epId;
+        epCreated++;
+      } catch (e: unknown) {
+        errors.push(`EP "${name}": ${e instanceof Error ? e.message : "error"}`);
+      }
+    }
+
+    for (const [pointName, kpNames] of Object.entries(mapping)) {
+      const epId = pointNameToId[pointName];
+      if (!epId) continue;
+      for (const kpName of kpNames) {
+        const kp = db.prepare(
+          "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1"
+        ).get(kpName) as { id: number } | undefined;
+        if (kp) { linkExercisePointKnowledgePoint(epId, kp.id); kpLinks++; }
+      }
+    }
+
+    for (let i = 0; i < exercises.length; i++) {
+      try {
+        const item = exercises[i] as Record<string, unknown>;
+        const stem = item.stem as Record<string, unknown> | undefined;
+        const pointNames = (item.exercise_points as string[]) || [];
+        if (!stem || !stem.text || pointNames.length === 0) continue;
+
+        const questionText = (stem.text as string).trim();
+        const question = db.prepare(
+          "SELECT id FROM questions WHERE question_text = ? LIMIT 1"
+        ).get(questionText) as { id: number } | undefined;
+
+        if (!question) continue;
+        for (const pn of pointNames) {
+          const epId = pointNameToId[pn];
+          if (epId) { linkExercisePointQuestion(epId, question.id); qLinks++; }
+        }
+      } catch (e: unknown) {
+        errors.push(`Item ${i}: ${e instanceof Error ? e.message : "error"}`);
+      }
+    }
+
+    res.json({ epCreated, kpLinks, qLinks, errors: errors.length > 0 ? errors : undefined });
   });
 
   // ---------- File serving ----------
