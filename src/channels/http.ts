@@ -622,7 +622,36 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       const desc = (description as string) || "";
       const line = `| B${String(nextId).padStart(4, "0")} | ${title} | P? | ${pageInfo}${desc ? " — " + desc : ""} | ${date} |\n`;
 
-      fs.appendFileSync(buglistPath, line, "utf-8");
+      // Insert into "待修复" section instead of appending to end of file
+      const pendingHeader = "## 待修复";
+      const pendingIdx = content.indexOf(pendingHeader);
+      if (pendingIdx !== -1) {
+        // Find the table header after "## 待修复"
+        const afterPending = content.slice(pendingIdx + pendingHeader.length);
+        const tableHeaderMatch = afterPending.match(/\n(\|[^\n]+\|\n\|[-| ]+\|\n)/);
+        if (tableHeaderMatch) {
+          // Table exists - insert after the separator line
+          const tableHeaderFull = tableHeaderMatch[0];
+          const insertIdx = content.indexOf(tableHeaderFull, pendingIdx + pendingHeader.length) + tableHeaderFull.length;
+          content = content.slice(0, insertIdx) + line + content.slice(insertIdx);
+        } else {
+          // No table yet - replace "(暂无)" or add table after header
+          const placeholder = "（暂无）";
+          const placeholderIdx = content.indexOf(placeholder, pendingIdx);
+          if (placeholderIdx !== -1) {
+            const tableHeader = "| Bug ID | 标题 | 优先级 | 定位 | 发现日期 |\n|--------|------|--------|------|----------|\n";
+            content = content.slice(0, placeholderIdx) + tableHeader + line + content.slice(placeholderIdx + placeholder.length);
+          } else {
+            // Fallback: insert right after header
+            content = content.slice(0, pendingIdx + pendingHeader.length) + "\n\n" + line + content.slice(pendingIdx + pendingHeader.length);
+          }
+        }
+      } else {
+        // No pending section at all - prepend
+        content = `# Bug 记录\n\n${pendingHeader}\n\n| Bug ID | 标题 | 优先级 | 定位 | 发现日期 |\n|--------|------|--------|------|----------|\n` + line + "\n" + content;
+      }
+
+      fs.writeFileSync(buglistPath, content, "utf-8");
       res.json({ id: `B${String(nextId).padStart(4, "0")}` });
     }
   });
@@ -1441,6 +1470,30 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
   app.get("/admin.html", requireAuth, requireAdmin, (_req: Request, res: Response) => {
     serveFile(path.join(WEB_DIR, "admin.html"), "text/html; charset=utf-8", res);
+  });
+
+  // Serve images from web/images/
+  app.get("/images/{*relPath}", requireAuth, (req: Request, res: Response) => {
+    const relPathRaw = (req.params as { relPath: string[] | string }).relPath;
+    const relPath = Array.isArray(relPathRaw) ? relPathRaw.join("/") : relPathRaw;
+    if (!relPath || relPath.includes("..")) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const filePath = path.join(WEB_DIR, "images", relPath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+      ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
+    };
+    const contentType = mimeTypes[ext] || "application/octet-stream";
+    try {
+      const data = fs.readFileSync(filePath);
+      res.set("Content-Type", contentType);
+      res.send(data);
+    } catch {
+      res.status(404).json({ error: "Image not found" });
+    }
   });
 
   // GET / → redirect based on auth and role

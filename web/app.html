@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Domiclaw — Study Assistant</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -386,6 +389,12 @@ body.light .edges-svg text { fill: #666; }
 .bug-dialog input:focus,.bug-dialog textarea:focus{border-color:#0a84ff}
 .bug-dialog .bug-meta{font-size:11px;color:#999;margin-bottom:10px;background:#f5f5f5;padding:8px;border-radius:4px;word-break:break-all}
 .bug-dialog .bug-actions{display:flex;gap:8px;justify-content:flex-end}
+
+/* KaTeX dark theme overrides */
+.katex { color: #eee; font-size: 1.05em; }
+.katex-display { margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; }
+.chat-msg .katex-display { color: #eee; }
+.q-result .katex, .modal-expl .katex { color: #eee; }
 </style>
 </head>
 <body>
@@ -474,15 +483,15 @@ body.light .edges-svg text { fill: #666; }
         class="chat-msg" :class="m.role">
         <template v-if="m.role==='thinking'">
           <div style="font-size:12px;color:#888;margin-bottom:4px">Thinking...</div>
-          {{ m.text }}
+          <span v-html="renderMath(m.text)"></span>
         </template>
         <template v-else>
-          {{ m.text }}
+          <span v-html="renderMath(m.text)"></span>
           <div v-if="m.thinking" style="margin-top:8px">
             <button class="thinking-toggle" @click="m.thinkingShow = !m.thinkingShow">
               {{ m.thinkingShow ? 'Hide thinking' : 'Show thinking' }}
             </button>
-            <div v-if="m.thinkingShow" class="thinking-block">{{ m.thinking }}</div>
+            <div v-if="m.thinkingShow" class="thinking-block" v-html="renderMath(m.thinking)"></div>
           </div>
         </template>
       </div>
@@ -528,7 +537,7 @@ body.light .edges-svg text { fill: #666; }
         class="question-card"
         :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
         <div class="q-header">
-          <span>Q{{ qi+1 }}. {{ q.text }}</span>
+          <span>Q{{ qi+1 }}. <span v-html="renderMath(q.text)"></span></span>
           <span class="q-type">{{ q.type }}</span>
         </div>
         <div v-if="q.options && !q.answered" class="q-options">
@@ -550,7 +559,7 @@ body.light .edges-svg text { fill: #666; }
         </div>
         <div v-if="q.answered" class="q-result" :class="q.result">
           {{ q.result === 'correct' ? 'Correct!' : 'Incorrect' }}
-          <template v-if="q.explanation"><br><small>{{ q.explanation }}</small></template>
+          <template v-if="q.explanation"><br><small v-html="renderMath(q.explanation)"></small></template>
         </div>
       </div>
     </div>
@@ -661,7 +670,7 @@ body.light .edges-svg text { fill: #666; }
       </div>
       <div class="kb-item" v-for="q in kbQuestions" :key="q.id">
         <div class="kb-item-text">
-          <div>{{ q.question_text.substring(0, 120) }}{{ q.question_text.length > 120 ? '...' : '' }}</div>
+          <div v-html="renderMath(q.question_text.substring(0, 120) + (q.question_text.length > 120 ? '...' : ''))"></div>
           <div class="kb-item-meta">
             [{{ q.question_type }}] {{ q.status }}
             <span v-if="q.knowledge_point_id"> | KP: {{ getKpName(q.knowledge_point_id) }}</span>
@@ -691,7 +700,7 @@ body.light .edges-svg text { fill: #666; }
         <div v-for="(q, qi) in kpModal.questions" :key="q.id" class="modal-q"
           :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
           <div class="modal-q-text">
-            Q{{ qi+1 }}. [{{ q.type }}] {{ q.text }}
+            Q{{ qi+1 }}. [{{ q.type }}] <span v-html="renderMath(q.text)"></span>
           </div>
           <div v-if="q.options && !q.answered" class="modal-q-options">
             <button v-for="(label, k) in q.options" :key="k" class="modal-q-option"
@@ -708,7 +717,7 @@ body.light .edges-svg text { fill: #666; }
               {{ q.showExp ? 'Hide explanation' : 'Explain' }}
             </button>
             <div v-if="q.showExp" class="modal-expl">
-              <template v-if="q.explanation">{{ q.explanation }}</template>
+              <template v-if="q.explanation"><span v-html="renderMath(q.explanation)"></span></template>
               <template v-else>Generating explanation...</template>
             </div>
           </div>
@@ -1312,6 +1321,24 @@ Vue.createApp({
       }
     }
 
+    function renderMath(text) {
+      if (!text) return '';
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) => {
+        return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">`;
+      });
+      html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => {
+        try { return katex.renderToString(m.trim(), { displayMode: true, throwOnError: false }); } catch { return m; }
+      });
+      html = html.replace(/\$([^\$\n]+?)\$/g, (_, m) => {
+        try { return katex.renderToString(m.trim(), { displayMode: false, throwOnError: false }); } catch { return m; }
+      });
+      return html;
+    }
+
     function getKpName(kpId) {
       const kp = kbAllKps.value.find(k => k.id === kpId);
       return kp ? kp.title : 'KP#' + kpId;
@@ -1435,7 +1462,7 @@ Vue.createApp({
       kbFilterSubject, kbFilterKpId, kbFilterType, kbSubjects, kbFilterKps, kbAllKps,
       kbImportInput,
       fetchMyQuestions, saveMyQuestion, editMyQuestion, deleteMyQuestion,
-      triggerImport, handleImportFile, onKbFilterChange, getKpName,
+      triggerImport, handleImportFile, onKbFilterChange, getKpName, renderMath,
       // KP Quiz
       expandedSubjects, kpModal, visibleNodes, visibleEdges,
       openKpQuizModal, closeKpModal, refreshKpQuiz, submitKpAnswer,
