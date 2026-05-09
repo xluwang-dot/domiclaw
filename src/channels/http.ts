@@ -62,6 +62,11 @@ import {
   getExercisePointByName,
   linkExercisePointKnowledgePoint,
   linkExercisePointQuestion,
+  listExercisePoints,
+  updateExercisePoint,
+  deleteExercisePoint,
+  setExercisePointKps,
+  getExercisePointKpIds,
 } from "../db.js";
 import {
   ASSISTANT_NAME,
@@ -1239,7 +1244,25 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
           addQuestion(null, null, questionText, item.answer as string, questionType,
             explanation, difficulty, options, knowledgePointIds);
+          const qId = getDatabase().prepare(
+            "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
+          ).get(questionText) as { id: number };
           imported++;
+
+          const epNames = (item.exercise_points as string[]) || [];
+          const kpNames = (item.knowledge_points as string[]) || [];
+          if (qId) {
+            for (const epName of epNames) {
+              const epId = addExercisePoint(1, epName);
+              linkExercisePointQuestion(epId, qId.id);
+              for (const kpName of kpNames) {
+                const kp = getDatabase().prepare(
+                  "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1"
+                ).get(kpName) as { id: number } | undefined;
+                if (kp) { linkExercisePointKnowledgePoint(epId, kp.id); }
+              }
+            }
+          }
         } catch (e: unknown) {
           errors.push(`Item ${i}: ${e instanceof Error ? e.message : "unknown error"}`);
         }
@@ -1323,7 +1346,26 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
         addQuestion(null, null, questionText, item.answer as string, questionType,
           explanation, difficulty, optionsRaw, knowledgePointIds);
+        const questionId = getDatabase().prepare(
+          "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
+        ).get(questionText) as { id: number };
         imported++;
+
+        // Auto-create exercise points and build associations
+        const epNames = (item.exercise_points as string[]) || [];
+        const kpNames = (item.knowledge_points as string[]) || [];
+        if (questionId) {
+          for (const epName of epNames) {
+            const epId = addExercisePoint(1, epName);
+            linkExercisePointQuestion(epId, questionId.id);
+            for (const kpName of kpNames) {
+              const kp = getDatabase().prepare(
+                "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1"
+              ).get(kpName) as { id: number } | undefined;
+              if (kp) { linkExercisePointKnowledgePoint(epId, kp.id); }
+            }
+          }
+        }
       } catch (e: unknown) {
         errors.push(`Item ${i}: ${e instanceof Error ? e.message : "unknown error"}`);
       }
@@ -1332,69 +1374,45 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     res.json({ imported, reused, total: items.length, errors: errors.length > 0 ? errors : undefined });
   });
 
-  // Migrate: import exercise points and link to questions and knowledge points
-  app.post("/api/admin/exercise-points/migrate", requireAuth, requireAdmin, (req: Request, res: Response) => {
-    const storeDir = path.join(path.dirname(new URL(import.meta.url).pathname), "../../store");
+  // Exercise Points CRUD
+  app.get("/api/admin/exercise-points", requireAuth, requireAdmin, (_req: Request, res: Response) => {
+    res.json(listExercisePoints());
+  });
 
-    let exercises: unknown[], mapping: Record<string, string[]>;
-    try {
-      exercises = JSON.parse(fs.readFileSync(path.join(storeDir, "exercises_with_knowledge_points.json"), "utf-8"));
-      mapping = JSON.parse(fs.readFileSync(path.join(storeDir, "knowledge_points_mapping.json"), "utf-8"));
-    } catch {
-      res.status(500).json({ error: "Cannot read store JSON files" });
-      return;
-    }
+  app.post("/api/admin/exercise-points", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const { name, subject_id } = req.body as Record<string, unknown>;
+    if (!name) { res.status(400).json({ error: "name required" }); return; }
+    const id = addExercisePoint((subject_id as number) || 1, name as string);
+    res.json({ id, name });
+  });
 
-    const db = getDatabase();
-    let epCreated = 0, kpLinks = 0, qLinks = 0, errors: string[] = [];
+  app.put("/api/admin/exercise-points/:id", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    const { name } = req.body as Record<string, unknown>;
+    if (!name) { res.status(400).json({ error: "name required" }); return; }
+    const ok = updateExercisePoint(id, name as string);
+    if (!ok) res.status(404).json({ error: "not found" });
+    else res.json({ ok: true });
+  });
 
-    const uniquePointNames = Object.keys(mapping);
-    const pointNameToId: Record<string, number> = {};
+  app.delete("/api/admin/exercise-points/:id", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    const ok = deleteExercisePoint(id);
+    if (!ok) res.status(404).json({ error: "not found" });
+    else res.json({ ok: true });
+  });
 
-    for (const name of uniquePointNames) {
-      try {
-        const epId = addExercisePoint(1, name);
-        pointNameToId[name] = epId;
-        epCreated++;
-      } catch (e: unknown) {
-        errors.push(`EP "${name}": ${e instanceof Error ? e.message : "error"}`);
-      }
-    }
+  app.get("/api/admin/exercise-points/:id/kps", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    res.json({ kp_ids: getExercisePointKpIds(id) });
+  });
 
-    for (const [pointName, kpNames] of Object.entries(mapping)) {
-      const epId = pointNameToId[pointName];
-      if (!epId) continue;
-      for (const kpName of kpNames) {
-        const kp = db.prepare(
-          "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1"
-        ).get(kpName) as { id: number } | undefined;
-        if (kp) { linkExercisePointKnowledgePoint(epId, kp.id); kpLinks++; }
-      }
-    }
-
-    for (let i = 0; i < exercises.length; i++) {
-      try {
-        const item = exercises[i] as Record<string, unknown>;
-        const stem = item.stem as Record<string, unknown> | undefined;
-        const pointNames = (item.exercise_points as string[]) || [];
-        if (!stem || !stem.text || pointNames.length === 0) continue;
-
-        const questionText = (stem.text as string).trim();
-        const question = db.prepare(
-          "SELECT id FROM questions WHERE question_text = ? LIMIT 1"
-        ).get(questionText) as { id: number } | undefined;
-
-        if (!question) continue;
-        for (const pn of pointNames) {
-          const epId = pointNameToId[pn];
-          if (epId) { linkExercisePointQuestion(epId, question.id); qLinks++; }
-        }
-      } catch (e: unknown) {
-        errors.push(`Item ${i}: ${e instanceof Error ? e.message : "error"}`);
-      }
-    }
-
-    res.json({ epCreated, kpLinks, qLinks, errors: errors.length > 0 ? errors : undefined });
+  app.put("/api/admin/exercise-points/:id/kps", requireAuth, requireAdmin, (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    const { kp_ids } = req.body as { kp_ids: number[] };
+    if (!Array.isArray(kp_ids)) { res.status(400).json({ error: "kp_ids must be an array" }); return; }
+    setExercisePointKps(id, kp_ids);
+    res.json({ ok: true });
   });
 
   // ---------- File serving ----------
