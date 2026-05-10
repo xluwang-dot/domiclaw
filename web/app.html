@@ -692,7 +692,7 @@ body.light .edges-svg text { fill: #666; }
   </div>
 
   <!-- KP Quiz Modal -->
-  <div v-if="kpModal.show" class="modal-overlay" @click.self="closeKpModal">
+  <div v-if="kpModal.show" class="modal-overlay">
     <div class="modal-box">
       <h3>Quiz: {{ kpModal.kpName }}</h3>
       <div v-if="kpModal.loading" style="color:#888;text-align:center;padding:32px">Loading...</div>

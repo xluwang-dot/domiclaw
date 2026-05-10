@@ -149,11 +149,11 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <div class="form-row">
 <select v-model="qSubjectId" @change="fetchQuestions"><option value="">All subjects</option>
 <option v-for="s in subjects" :key="s.id" :value="s.id">{{s.name}}</option></select>
-<select v-model="qKpId" @change="fetchQuestions"><option value="">All KPs</option>
+<select v-model="qKpId" @change="fetchQuestions"><option value="">{{kpFilterLabel}}</option>
 <option v-for="k in qFilterKps" :key="k.id" :value="k.id">{{k.title}}</option></select>
 <select v-model="qStatus" @change="fetchQuestions">
 <option value="">All status</option><option value="published">Published</option><option value="draft">Draft</option></select>
-<button class="btn btn-blue" @click="showQDialog=true;editingQ=null">+ Add</button>
+<button class="btn btn-blue" @click="showQDialog=true;editingQ=null" style="margin-left:auto">+ Add</button>
 <button class="btn btn-green" @click="showExImport=true">Import Questions</button>
 </div>
 <table v-if="qList.length"><thead><tr><th style="width:50px">ID</th><th>Question</th><th style="width:80px">Actions</th></tr></thead>
@@ -188,7 +188,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <div v-else class="empty">No exercise points.</div>
 
 <!-- EP Dialog -->
-<div v-if="showEpDialog" class="dialog-overlay" @click.self="showEpDialog=false"><div class="dialog">
+<div v-if="showEpDialog" class="dialog-overlay"><div class="dialog">
 <div class="dialog-header"><h3>{{editingEp?'编辑考点':'新增考点'}}</h3>
 <button class="dialog-close" @click="showEpDialog=false">✕</button></div>
 <div class="dialog-field"><label class="dialog-label">名称</label>
@@ -226,7 +226,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <span>Page {{uPage}} / {{Math.ceil(uTotal/20)}}</span>
 <button @click="uPage++;fetchUsers()" :disabled="uPage*20>=uTotal">Next</button></div>
 <!-- Subject Dialog -->
-<div v-if="showSubjDialog" class="dialog-overlay" @click.self="showSubjDialog=false"><div class="dialog">
+<div v-if="showSubjDialog" class="dialog-overlay"><div class="dialog">
   <div class="dialog-header">
     <h3>添加科目</h3>
     <button class="dialog-close" @click="showSubjDialog=false">✕</button>
@@ -251,7 +251,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 </div>
 
 <!-- KP Dialog -->
-<div v-if="showKpDialog" class="dialog-overlay" @click.self="showKpDialog=false"><div class="dialog">
+<div v-if="showKpDialog" class="dialog-overlay"><div class="dialog">
   <div class="dialog-header">
     <h3 v-if="editingKp">编辑知识点 - {{editingKp.title}}</h3>
     <h3 v-else>添加知识点</h3>
@@ -347,7 +347,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 </div></div>
 
 <!-- KP Import Dialog -->
-<div v-if="showKpImport" class="dialog-overlay" @click.self="showKpImport=false"><div class="dialog" style="width:680px;max-height:90vh">
+<div v-if="showKpImport" class="dialog-overlay"><div class="dialog" style="width:680px;max-height:90vh">
 <div class="dialog-header">
 <h3>Import Knowledge Points</h3>
 <button class="dialog-close" @click="showKpImport=false;resetKpImport()">✕</button>
@@ -411,7 +411,7 @@ knowledge_point：知识点；<br>
 </div></div>
 
 <!-- KP Import Errors Dialog -->
-<div v-if="kpImportErrorsDialog" class="dialog-overlay" @click.self="kpImportErrorsDialog=false"><div class="dialog" style="width:500px">
+<div v-if="kpImportErrorsDialog" class="dialog-overlay"><div class="dialog" style="width:500px">
 <h3>导入失败详情</h3>
 <div style="max-height:300px;overflow-y:auto;font-size:12px;color:#e05555;white-space:pre-wrap">
 <div v-for="(e,i) in kpImportResult.errors" :key="i">{{e}}</div>
@@ -420,7 +420,7 @@ knowledge_point：知识点；<br>
 </div></div>
 
 <!-- Question Dialog -->
-<div v-if="showQDialog" class="dialog-overlay" @click.self="showQDialog=false"><div class="dialog">
+<div v-if="showQDialog" class="dialog-overlay"><div class="dialog">
 <h3>{{editingQ?'Edit':'Add'}} Question</h3>
 <div class="form-row" style="flex-direction:column">
 <textarea v-model="qForm.question_text" placeholder="Question text" @blur="checkDedup"></textarea>
@@ -439,7 +439,7 @@ knowledge_point：知识点；<br>
 </div></div>
 
 <!-- Question View/Edit Dialog -->
-<div v-if="showQView" class="dialog-overlay" @click.self="showQView=false"><div class="dialog" style="width:640px;max-height:85vh;overflow-y:auto">
+<div v-if="showQView" class="dialog-overlay"><div class="dialog" style="width:640px;max-height:85vh;overflow-y:auto">
 <div class="dialog-header">
 <h3>编辑题目</h3>
 <button class="dialog-close" @click="showQView=false">✕</button>
@@ -485,7 +485,7 @@ knowledge_point：知识点；<br>
 </div></div>
 
 <!-- Exercise Import Dialog -->
-<div v-if="showExImport" class="dialog-overlay" @click.self="showExImport=false"><div class="dialog" style="width:720px">
+<div v-if="showExImport" class="dialog-overlay"><div class="dialog" style="width:720px">
 <div class="dialog-header">
 <h3>Import Exercises</h3>
 <button class="dialog-close" @click="showExImport=false;resetExImport()">✕</button>
@@ -531,7 +531,7 @@ knowledge_point：知识点；<br>
 </div></div>
 
 <!-- Ex Import Errors Dialog -->
-<div v-if="exImportErrorsDialog" class="dialog-overlay" @click.self="exImportErrorsDialog=false"><div class="dialog" style="width:500px">
+<div v-if="exImportErrorsDialog" class="dialog-overlay"><div class="dialog" style="width:500px">
 <h3>导入失败详情</h3>
 <div style="max-height:300px;overflow-y:auto;font-size:12px;color:#e05555;white-space:pre-wrap">
 <div v-for="(e,i) in exImportResult.errors" :key="i">{{e}}</div>
@@ -540,7 +540,7 @@ knowledge_point：知识点；<br>
 </div></div>
 
 <!-- User Profile Dialog -->
-<div v-if="showProfileDialog" class="dialog-overlay" @click.self="showProfileDialog=false"><div class="dialog">
+<div v-if="showProfileDialog" class="dialog-overlay"><div class="dialog">
 <h3>User Profile</h3>
 <div class="profile-grid" v-if="profile">
 <div class="profile-card"><div class="num" style="color:#0a84ff">{{profile.total_answers}}</div><div class="lbl">Total Answers</div></div>
@@ -577,7 +577,7 @@ function hasChildren(kp){if(kp._hasChildren)return true;return kps.value.some(k=
 function getKpTypeLabel(kp){if(isRootNode(kp))return'根节点';if(isLeafNode(kp))return'叶子节点';return'中间节点'}
 const parentOptions=computed(()=>{if(!editingKp.value)return kps.value;const current=editingKp.value;if(isRootNode(current))return[];const result=[];const map={};for(const k of kps.value)map[k.id]=k;function getAncestors(kp){const p=kp.parent_id?map[kp.parent_id]:null;if(p){result.push(p);getAncestors(p)}}getAncestors(current);const parentId=current.parent_id;if(parentId){const parent=map[parentId];if(parent){const siblings=kps.value.filter(k=>k.parent_id===parentId&&k.id!==current.id);result.push(...siblings)}}return result})
 // Questions
-const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]);
+const qList=ref([]),qTotal=ref(0),qPage=ref(1),qSubjectId=ref(''),qKpId=ref(''),qStatus=ref(''),qFilterKps=ref([]),kpFilterLabel=ref('All KPs');
 const showQDialog=ref(false),editingQ=ref(null),dupes=ref([]);
 const showExImport=ref(false),exImportJson=ref(''),exImportFileLoaded=ref(false),exImportResult=ref(null),exImportErrorsDialog=ref(false),exImportFileInput=ref(null),exImportSubjectId=ref('');
 const qForm=ref({question_text:'',answer:'',explanation:'',question_type:'short_answer',options:'',difficulty:1,knowledge_point_id:null,status:'draft'});
@@ -638,9 +638,12 @@ if(d.errors&&d.errors.length>0){kpImportErrorsDialog.value=true}}
 
 // Questions
 async function fetchQuestions(){
-const sid=qSubjectId.value;if(sid){const kps=await apiGet('/api/admin/knowledge-points?subject_id='+sid);qFilterKps.value=kps||[]}else{qFilterKps.value=[]}
+const sid=qSubjectId.value;if(sid){const kps=await apiGet('/api/admin/knowledge-points?subject_id='+sid);
+const subj=subjects.value.find(s=>s.id===Number(sid));
+if(subj&&(subj.name==='数学'||subj.name_cn==='数学')){qFilterKps.value=(kps||[]).filter(k=>k.level_type==='chapter');kpFilterLabel.value='所有章节'}else{qFilterKps.value=kps||[];kpFilterLabel.value='All KPs'}
+}else{qFilterKps.value=[]}
 const params=new URLSearchParams();params.set('page',qPage.value);params.set('limit','20');
-if(sid)params.set('subject_id',sid);if(qKpId.value&&!sid)params.set('kp_id',qKpId.value);if(qStatus.value)params.set('status',qStatus.value);
+if(sid)params.set('subject_id',sid);if(qKpId.value)params.set('kp_id',qKpId.value);if(qStatus.value)params.set('status',qStatus.value);
 const d=await apiGet('/api/admin/questions?'+params.toString());qList.value=d.questions||[];qTotal.value=d.total||0}
 function editQ(q){editingQ.value=q;qForm.value={question_text:q.question_text,answer:q.answer,explanation:q.explanation||'',question_type:q.question_type,options:q.options||'',difficulty:q.difficulty||1,knowledge_point_id:q.knowledge_point_id||null,status:q.status||'draft'};showQDialog.value=true}
 async function saveQ(){const f=qForm.value;const body={...f,difficulty:Number(f.difficulty)};if(editingQ.value){await apiPut('/api/admin/questions/'+editingQ.value.id,body)}else{await apiPost('/api/admin/questions',body)};showQDialog.value=false;fetchQuestions()}
@@ -668,7 +671,7 @@ onMounted(async()=>{await checkAuth();await fetchSubjects();await fetchKPs();awa
 return{tab,user,logout,window,
 subjects,subjName,subjDesc,removeSubject,showSubjDialog,subjForm,saveSubject,
 kps,kpSubjectId,kpLevelFilter,treeRows,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,addChildKp,removeKp,deleteKp,fetchKPs,getKpParentName,getKpTitle,getKpLevelType,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,kpImportFileInput,kpImportFileLoaded,handleUploadClick,handleKpImportFile,resetKpImport,doKpImport,kpImportErrorsDialog,toggleNode,isRootNode,isLeafNode,getKpTypeLabel,parentOptions,hasChildren,childLevelOptions,renderMath,
-qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,showQDialog,editingQ,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,fetchQuestions,showQView,viewQData,viewQMode,viewQ,editFromView,saveFromView,getKpName,showExImport,exImportJson,exImportFileLoaded,exImportResult,exImportErrorsDialog,exImportFileInput,exImportSubjectId,handleExUploadClick,handleExImportFile,resetExImport,doExImport,
+qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,kpFilterLabel,showQDialog,editingQ,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,fetchQuestions,showQView,viewQData,viewQMode,viewQ,editFromView,saveFromView,getKpName,showExImport,exImportJson,exImportFileLoaded,exImportResult,exImportErrorsDialog,exImportFileInput,exImportSubjectId,handleExUploadClick,handleExImportFile,resetExImport,doExImport,
 uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers,epList,showEpDialog,editingEp,epForm,fetchExercisePoints,saveEp,editEp,removeEp};
 }}).mount('#app');</script>
 <button class="bug-btn" onclick="toggleBug()" title="Report Bug">&#x1F41B;</button>

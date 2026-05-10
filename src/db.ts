@@ -582,6 +582,50 @@ export function linkExercisePointQuestion(exercisePointId: number, questionId: n
   db.prepare("INSERT OR IGNORE INTO exercise_point_questions (exercise_point_id, question_id) VALUES (?, ?)").run(exercisePointId, questionId);
 }
 
+export interface ExercisePointRow {
+  id: number; name: string; subject_id: number;
+  kp_count: number; q_count: number;
+}
+
+export function listExercisePoints(): ExercisePointRow[] {
+  return db.prepare(`
+    SELECT ep.id, ep.name, ep.subject_id,
+      COUNT(DISTINCT epk.knowledge_point_id) as kp_count,
+      COUNT(DISTINCT epq.question_id) as q_count
+    FROM exercise_points ep
+    LEFT JOIN exercise_point_knowledge_points epk ON ep.id = epk.exercise_point_id
+    LEFT JOIN exercise_point_questions epq ON ep.id = epq.exercise_point_id
+    GROUP BY ep.id
+    ORDER BY ep.id
+  `).all() as ExercisePointRow[];
+}
+
+export function updateExercisePoint(id: number, name: string): boolean {
+  const result = db.prepare("UPDATE exercise_points SET name = ? WHERE id = ?").run(name, id);
+  return result.changes > 0;
+}
+
+export function deleteExercisePoint(id: number): boolean {
+  db.prepare("DELETE FROM exercise_point_knowledge_points WHERE exercise_point_id = ?").run(id);
+  db.prepare("DELETE FROM exercise_point_questions WHERE exercise_point_id = ?").run(id);
+  const result = db.prepare("DELETE FROM exercise_points WHERE id = ?").run(id);
+  return result.changes > 0;
+}
+
+export function setExercisePointKps(exercisePointId: number, kpIds: number[]): void {
+  db.prepare("DELETE FROM exercise_point_knowledge_points WHERE exercise_point_id = ?").run(exercisePointId);
+  const stmt = db.prepare("INSERT OR IGNORE INTO exercise_point_knowledge_points (exercise_point_id, knowledge_point_id) VALUES (?, ?)");
+  for (const kpId of kpIds) {
+    stmt.run(exercisePointId, kpId);
+  }
+}
+
+export function getExercisePointKpIds(exercisePointId: number): number[] {
+  return (db.prepare(
+    "SELECT knowledge_point_id FROM exercise_point_knowledge_points WHERE exercise_point_id = ?"
+  ).all(exercisePointId) as { knowledge_point_id: number }[]).map(r => r.knowledge_point_id);
+}
+
 // ============== Exam paper queries ==============
 
 export function addExamPaper(
@@ -834,6 +878,22 @@ export function bulkImportUserQuestions(
 }
 
 // Admin: paginated questions with filters
+function getAllDescendantKpIds(rootId: number): number[] {
+  const result: number[] = [rootId];
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    const children = db.prepare(
+      "SELECT id FROM knowledge_points WHERE parent_id = ?",
+    ).all(parentId) as { id: number }[];
+    for (const c of children) {
+      result.push(c.id);
+      queue.push(c.id);
+    }
+  }
+  return result;
+}
+
 export function getQuestionsAdmin(opts?: {
   subjectId?: number; kpId?: number; status?: string; page?: number; limit?: number;
 }): { questions: QuestionRow[]; total: number } {
@@ -847,8 +907,10 @@ export function getQuestionsAdmin(opts?: {
     params.push(opts.subjectId, opts.subjectId);
   }
   if (opts?.kpId) {
-    conditions.push("q.knowledge_point_id = ?");
-    params.push(opts.kpId);
+    const kpIds = getAllDescendantKpIds(opts.kpId);
+    const placeholders = kpIds.map(() => "?").join(",");
+    conditions.push(`q.knowledge_point_id IN (${placeholders})`);
+    params.push(...kpIds);
   }
   if (opts?.status) {
     conditions.push("q.status = ?");

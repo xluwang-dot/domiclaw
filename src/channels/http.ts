@@ -620,27 +620,37 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       const date = new Date().toISOString().substring(0, 10);
       const pageInfo = (page as string) || "unknown";
       const desc = (description as string) || "";
-      const line = `| B${String(nextId).padStart(4, "0")} | ${title} | P? | ${pageInfo}${desc ? " — " + desc : ""} | ${date} |\n`;
+      const safeDesc = desc
+        .replace(/\n/g, " ")
+        .replace(/\|/g, "¦")
+        .replace(/\r/g, "");
+      const descSuffix = safeDesc ? " — " + (safeDesc.length > 200 ? safeDesc.substring(0, 200) + "..." : safeDesc) : "";
+      const line = `| B${String(nextId).padStart(4, "0")} | ${title} | P? | ${pageInfo}${descSuffix} | ${date} |\n`;
 
       // Insert into "待修复" section instead of appending to end of file
       const pendingHeader = "## 待修复";
       const pendingIdx = content.indexOf(pendingHeader);
       if (pendingIdx !== -1) {
-        // Find the table header after "## 待修复"
+        // Limit scope to content between "待修复" and next "## "
         const afterPending = content.slice(pendingIdx + pendingHeader.length);
-        const tableHeaderMatch = afterPending.match(/\n(\|[^\n]+\|\n\|[-| ]+\|\n)/);
+        const nextSectionIdx = afterPending.search(/\n##\s/);
+        const sectionBody = nextSectionIdx !== -1 ? afterPending.slice(0, nextSectionIdx) : afterPending;
+
+        // Find the table header within this section only
+        const tableHeaderMatch = sectionBody.match(/\n(\|[^\n]+\|\n\|[-| ]+\|\n)/);
         if (tableHeaderMatch) {
           // Table exists - insert after the separator line
           const tableHeaderFull = tableHeaderMatch[0];
           const insertIdx = content.indexOf(tableHeaderFull, pendingIdx + pendingHeader.length) + tableHeaderFull.length;
           content = content.slice(0, insertIdx) + line + content.slice(insertIdx);
         } else {
-          // No table yet - replace "(暂无)" or add table after header
+          // No table yet - replace "（暂无）" or add table after header
           const placeholder = "（暂无）";
-          const placeholderIdx = content.indexOf(placeholder, pendingIdx);
+          const placeholderIdx = sectionBody.indexOf(placeholder);
           if (placeholderIdx !== -1) {
+            const globalPlaceholderIdx = pendingIdx + pendingHeader.length + placeholderIdx;
             const tableHeader = "| Bug ID | 标题 | 优先级 | 定位 | 发现日期 |\n|--------|------|--------|------|----------|\n";
-            content = content.slice(0, placeholderIdx) + tableHeader + line + content.slice(placeholderIdx + placeholder.length);
+            content = content.slice(0, globalPlaceholderIdx) + tableHeader + line + content.slice(globalPlaceholderIdx + placeholder.length);
           } else {
             // Fallback: insert right after header
             content = content.slice(0, pendingIdx + pendingHeader.length) + "\n\n" + line + content.slice(pendingIdx + pendingHeader.length);
