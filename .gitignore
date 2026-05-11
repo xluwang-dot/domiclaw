@@ -6,7 +6,7 @@ data/*
 *log*/
 
 # Database
-store/messages.db
+store/*
 
 # Environment
 .env
@@ -22,3 +22,12 @@ CLAUDE.md
 
 # Work log (local only)
 worklog.md
+
+# images file (local only)
+web/images/
+
+# Graphify cache
+src/graphify-out/
+
+# Temporary documents
+*.TXT

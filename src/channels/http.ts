@@ -10,6 +10,7 @@ import { NewMessage } from "../types.js";
 import { logger } from "../logger.js";
 import { runAgent, AgentOutput } from "../agent.js";
 import { handleCommand } from "../commands.js";
+import { routeViaCache } from "../query-router.js";
 import { defaultLimiter } from "../rate-limit.js";
 import { formatMessages } from "../router.js";
 import {
@@ -514,6 +515,23 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       onAgentProcessed?.(msg.timestamp);
       pushSse(userId, "done", { status: "success", text: cmdResult });
       res.json({ status: "ok", command: true });
+      return;
+    }
+
+    // AQC layer — try cached/natural-language query first
+    const aqcResult = await routeViaCache(text, userId, ASSISTANT_NAME);
+    if (aqcResult !== null) {
+      const botMsg: NewMessage = {
+        id: `web-aqc-${Date.now()}`,
+        sender: ASSISTANT_NAME,
+        sender_name: ASSISTANT_NAME,
+        content: aqcResult,
+        timestamp: new Date().toISOString(),
+        is_bot_message: true,
+      };
+      storeMessage(botMsg, userId);
+      onAgentProcessed?.(msg.timestamp);
+      res.json({ status: "ok", text: aqcResult });
       return;
     }
 

@@ -136,7 +136,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 </td>
 <td><span style="font-size:10px;color:#0a84ff">{{row.level_type}}</span></td>
 <td style="font-size:11px;color:#0a84ff;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{row.alias||'-'}}</td>
-<td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" v-html="renderMath(row.content||'')"></td>
+<td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" v-html="renderContent(row.content||'')"></td>
 <td>
 <button v-if="row.level_type!=='root'" class="btn-sm btn-blue" @click="editKp(row)">Edit</button>
 <button class="btn-sm btn-green" @click="addChildKp(row)">Add</button>
@@ -162,7 +162,7 @@ tr:hover{background:rgba(0,0,0,0.03)}
 <template v-if="(q.question_text||'').match(/!\[.*?\]\((.*?)\)/)">
   <img :src="(q.question_text.match(/!\[.*?\]\((.*?)\)/)||[])[1]" style="max-height:40px;max-width:80px;border-radius:4px;vertical-align:middle;margin-right:6px">
 </template>
-<span v-html="renderMath((q.question_text||'').replace(/!\[.*?\]\(.*?\)/g,'[图]'))"></span>
+<span v-html="renderContent((q.question_text||'').replace(/!\[.*?\]\(.*?\)/g,'[图]'))"></span>
 </td>
 <td><button class="btn-sm btn-blue" @click.stop="viewQ(q)">Edit</button></td></tr></tbody></table>
 <div v-else class="empty">No questions.</div>
@@ -448,9 +448,9 @@ knowledge_point：知识点；<br>
 <!-- VIEW MODE -->
 <template v-if="viewQMode==='view'">
 <div style="display:flex;flex-direction:column;gap:14px;font-size:13px;color:#222">
-<div><b>题目：</b><div style="margin-top:4px;padding:10px;background:#f8f8f8;border-radius:6px;white-space:pre-wrap" v-html="renderMath(viewQData.question_text||'')"></div></div>
-<div><b>答案：</b><div style="margin-top:4px;padding:10px;background:#f8f8f8;border-radius:6px" v-html="renderMath(viewQData.answer||'')"></div></div>
-<div><b>解析：</b><div style="margin-top:4px;padding:10px;background:#f8f8f8;border-radius:6px;white-space:pre-wrap" v-html="renderMath(viewQData.explanation||'（无）')"></div></div>
+<div><b>题目：</b><div style="margin-top:4px;padding:10px;background:#f8f8f8;border-radius:6px;white-space:pre-wrap" v-html="renderContent(viewQData.question_text||'')"></div></div>
+<div><b>答案：</b><div style="margin-top:4px;padding:10px;background:#f8f8f8;border-radius:6px" v-html="renderContent(viewQData.answer||'')"></div></div>
+<div><b>解析：</b><div style="margin-top:4px;padding:10px;background:#f8f8f8;border-radius:6px;white-space:pre-wrap" v-html="renderContent(viewQData.explanation||'（无）')"></div></div>
 <div><b>关联的知识点：</b><span style="margin-top:4px">{{viewQData.knowledge_point_id?getKpName(viewQData.knowledge_point_id):'无'}}</span></div>
 <div><b>关联的考点：</b><span style="margin-top:4px">{{viewQData.exercise_point_id||'无'}}</span></div>
 <div><b>状态：</b><span :style="{color:viewQData.status==='published'?'#2a2':'#ca8'}">{{viewQData.status==='published'?'已发布':'草稿'}}</span></div>
@@ -567,7 +567,7 @@ const kps=ref([]),kpSubjectId=ref(''),kpLevelFilter=ref(''),allKps=ref([]),showK
 const kpForm=ref({subject_id:'',title:'',content:'',level_type:'knowledge_point',sort_order:0,alias:'',parent_id:null});
 const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null),kpImportFileInput=ref(null),kpImportErrorsDialog=ref(false),kpImportFileLoaded=ref(false);
 const expandedNodes=reactive({});
-function renderMath(text){if(!text)return'';let html=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,alt,src)=>{return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">`});html=html.replace(/\$\$([\s\S]+?)\$\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\$([^\$\n]+?)\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});return html}
+function renderContent(text){if(!text)return'';let html=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,alt,src)=>{return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">`});html=html.replace(/\$\$([\s\S]+?)\$\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\$([^\$\n]+?)\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});return html}
 function getKpName(id){const k=allKps.value.find(x=>x.id===id);return k?k.title:'KP#'+id}
 function toggleNode(id){expandedNodes[id]=!expandedNodes[id]}
 const treeRows=computed(()=>{const raw=kps.value||[];const map={};for(const k of raw)map[k.id]=k;const kids={};for(const k of raw){const pid=k.parent_id||0;if(!kids[pid])kids[pid]=[];kids[pid].push(k)}for(const key of Object.keys(kids)){kids[key].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)||a.id-b.id)}const lv=kpLevelFilter.value;const rows=[];function walk(pid,depth){const items=kids[pid]||[];for(const k of items){const has=kids[k.id]&&kids[k.id].length>0;rows.push({...k,_depth:depth,_hasChildren:has,_expanded:!!expandedNodes[k.id]});if(has&&expandedNodes[k.id])walk(k.id,depth+1)}}walk(0,0);if(lv)return rows.filter(r=>r.level_type===lv);return rows});
@@ -670,7 +670,7 @@ async function removeEp(id){if(!confirm('删除该考点？'))return;await apiDe
 onMounted(async()=>{await checkAuth();await fetchSubjects();await fetchKPs();await loadAllKps();await fetchQuestions();await fetchUsers()});
 return{tab,user,logout,window,
 subjects,subjName,subjDesc,removeSubject,showSubjDialog,subjForm,saveSubject,
-kps,kpSubjectId,kpLevelFilter,treeRows,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,addChildKp,removeKp,deleteKp,fetchKPs,getKpParentName,getKpTitle,getKpLevelType,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,kpImportFileInput,kpImportFileLoaded,handleUploadClick,handleKpImportFile,resetKpImport,doKpImport,kpImportErrorsDialog,toggleNode,isRootNode,isLeafNode,getKpTypeLabel,parentOptions,hasChildren,childLevelOptions,renderMath,
+kps,kpSubjectId,kpLevelFilter,treeRows,allKps,showKpDialog,editingKp,kpForm,saveKp,editKp,addChildKp,removeKp,deleteKp,fetchKPs,getKpParentName,getKpTitle,getKpLevelType,showKpImport,kpImportSubjectId,kpImportJson,kpImportResult,kpImportFileInput,kpImportFileLoaded,handleUploadClick,handleKpImportFile,resetKpImport,doKpImport,kpImportErrorsDialog,toggleNode,isRootNode,isLeafNode,getKpTypeLabel,parentOptions,hasChildren,childLevelOptions,renderContent,
 qList,qTotal,qPage,qSubjectId,qKpId,qStatus,qFilterKps,kpFilterLabel,showQDialog,editingQ,dupes,qForm,saveQ,editQ,removeQ,toggleQStatus,fetchQuestions,showQView,viewQData,viewQMode,viewQ,editFromView,saveFromView,getKpName,showExImport,exImportJson,exImportFileLoaded,exImportResult,exImportErrorsDialog,exImportFileInput,exImportSubjectId,handleExUploadClick,handleExImportFile,resetExImport,doExImport,
 uList,uTotal,uPage,uSearch,showProfileDialog,profile,showProfile,deleteUser,promptResetPassword,fetchUsers,epList,showEpDialog,editingEp,epForm,fetchExercisePoints,saveEp,editEp,removeEp};
 }}).mount('#app');</script>

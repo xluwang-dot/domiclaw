@@ -131,7 +131,7 @@ interface ModelConfig {
   name: string; baseUrl: string; apiKey: string;
 }
 
-async function nonStreamingApiCall(
+export async function nonStreamingApiCall(
   messages: ChatMessage[], tools: ToolDefinition[], model?: ModelConfig,
 ): Promise<{ content: string | null; toolCalls: ToolCall[]; reasoningContent: string | null }> {
   const m = model || { name: MODEL_NAME, baseUrl: MODEL_BASE_URL, apiKey: MODEL_API_KEY };
@@ -388,17 +388,17 @@ export async function runAgent(
 
       const result = await nonStreamingApiCall(messages, tools);
 
-      if (result.content) {
-        if (onOutput) await onOutput({ status: "success", result: result.content, thinking: null });
-        return { status: "success", result: result.content, thinking: null };
-      }
-
-      if (result.toolCalls.length > 0) {
+      // Push assistant message (content and/or tool calls)
+      if (result.content || result.toolCalls.length > 0) {
         messages.push({
           role: "assistant", content: result.content,
-          reasoning_content: result.reasoningContent || undefined, tool_calls: result.toolCalls,
+          reasoning_content: result.reasoningContent || undefined,
+          tool_calls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
         });
+      }
 
+      // If model requested tool calls, execute them regardless of content presence
+      if (result.toolCalls.length > 0) {
         for (const tc of result.toolCalls) {
           const toolName = tc.function.name;
           const tool = getTool(toolName);
@@ -422,8 +422,14 @@ export async function runAgent(
         continue;
       }
 
-      return { status: "error", result: null, thinking: null, error: "Response has no content or tool calls" };
-    } catch (err) {
+      // No tool calls — response is complete
+      if (result.content) {
+        if (onOutput) await onOutput({ status: "success", result: result.content, thinking: null });
+        return { status: "success", result: result.content, thinking: null };
+      }
+
+      return { status: "success", result: null, thinking: null };
+  } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error({ error: errorMessage }, "Agent error");
       if (onOutput) await onOutput({ status: "error", result: null, thinking: null, error: errorMessage });

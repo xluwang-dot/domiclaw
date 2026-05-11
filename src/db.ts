@@ -202,6 +202,18 @@ function createSchema(database: Database.Database): void {
       last_wrong_time TEXT,
       PRIMARY KEY (user_id, subject_id, kp_id)
     );
+
+    CREATE TABLE IF NOT EXISTS query_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pattern TEXT NOT NULL,
+      intent TEXT NOT NULL,
+      params_json TEXT,
+      operation_json TEXT NOT NULL,
+      hits INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      last_hit_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_qc_pattern ON query_cache(pattern);
   `);
 
   // Seed common subjects on first run
@@ -403,6 +415,12 @@ export function initDatabase(): void {
 
   // Init auth module
   initAuthDb(db);
+
+  // Seed query cache patterns (all users: 1 = admin, 2+ = students)
+  try {
+    db.prepare("DELETE FROM query_cache WHERE hits <= 2").run();
+    seedQueryCache(1);
+  } catch { /* ok */ }
 }
 
 // ============== Message queries ==============
@@ -1623,4 +1641,69 @@ export function getScheduledTasksByUser(userId: number): ScheduledTaskRow[] {
      FROM scheduled_tasks WHERE user_id = ? AND status = 'active'
      ORDER BY next_run ASC`,
   ).all(userId) as ScheduledTaskRow[];
+}
+
+// ── Query Cache ──
+
+export interface QueryCacheRow {
+  id: number; pattern: string; intent: string;
+  params_json: string | null; operation_json: string;
+  hits: number; created_at: string; last_hit_at: string;
+}
+
+export function findCachedQuery(userInput: string): QueryCacheRow | null {
+  const input = userInput.trim().toLowerCase();
+  const rows = db.prepare(
+    `SELECT * FROM query_cache WHERE ? LIKE '%' || pattern || '%'
+     ORDER BY hits DESC LIMIT 1`,
+  ).all(input) as QueryCacheRow[];
+  if (rows.length > 0) {
+    db.prepare(
+      `UPDATE query_cache SET hits = hits + 1, last_hit_at = datetime('now') WHERE id = ?`,
+    ).run(rows[0].id);
+    return rows[0];
+  }
+  return null;
+}
+
+export function insertCachedQuery(
+  pattern: string, intent: string, params_json: string | null, operation_json: string,
+): void {
+  db.prepare(
+    `INSERT INTO query_cache (pattern, intent, params_json, operation_json)
+     VALUES (?, ?, ?, ?)`,
+  ).run(pattern.trim().toLowerCase(), intent, params_json, operation_json);
+}
+
+export function deleteCachedQuery(id: number): void {
+  db.prepare("DELETE FROM query_cache WHERE id = ?").run(id);
+}
+
+export function purgeOldCache(days: number = 30): number {
+  const result = db.prepare(
+    `DELETE FROM query_cache WHERE last_hit_at < datetime('now', '-' || ? || ' days')`,
+  ).run(days);
+  return result.changes;
+}
+
+export function seedQueryCache(userId: number): void {
+  const seedPatterns: { pattern: string; intent: string; params_json: string; operation_json: string }[] = [
+    { pattern: "我有哪些错题", intent: "query_wrong_questions", params_json: "{}",
+      operation_json: `{"action":"getWrongQuestions","params":{"userId":${userId}}}` },
+    { pattern: "今天要复习什么", intent: "query_due_reviews", params_json: "{}",
+      operation_json: `{"action":"getDueReviews","params":{"userId":${userId}}}` },
+    { pattern: "学习进度怎么样", intent: "query_study_stats", params_json: "{}",
+      operation_json: `{"action":"getStudyStats","params":{"userId":${userId}}}` },
+    { pattern: "学习计划是什么", intent: "query_study_plan", params_json: "{}",
+      operation_json: `{"action":"getStudyPlan","params":{"userId":${userId}}}` },
+    { pattern: "我的掌握度怎么样", intent: "query_study_stats", params_json: "{}",
+      operation_json: `{"action":"getStudyStats","params":{"userId":${userId}}}` },
+  ];
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO query_cache (pattern, intent, params_json, operation_json)
+     VALUES (?, ?, ?, ?)`,
+  );
+  for (const s of seedPatterns) {
+    insert.run(s.pattern, s.intent, s.params_json, s.operation_json);
+  }
 }
