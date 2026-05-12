@@ -483,6 +483,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       return;
     }
 
+    logger.info({ userId, text: text.substring(0, 200) }, "用户消息");
+
     const msg: NewMessage = {
       id: `web-${Date.now()}`,
       sender: "web-user",
@@ -558,6 +560,14 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       },
       async (output: AgentOutput) => {
         if (output.isPartial) {
+          if (output.toolEvent) {
+            pushSse(userId, "tool_event", {
+              type: output.toolEvent.type,
+              name: output.toolEvent.name,
+              args: output.toolEvent.args || null,
+              resultPreview: output.toolEvent.resultPreview || null,
+            });
+          }
           if (output.thinking) pushSse(userId, "thinking", { text: output.thinking });
           if (output.result) pushSse(userId, "token", { text: output.result });
         } else if (output.status === "success" && output.result) {
@@ -1498,6 +1508,26 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
   app.get("/admin.html", requireAuth, requireAdmin, (_req: Request, res: Response) => {
     serveFile(path.join(WEB_DIR, "admin.html"), "text/html; charset=utf-8", res);
+  });
+
+  // Serve web/ static assets (CSS, JS)
+  app.get("/bug-report.css", (_req: Request, res: Response) => {
+    const filePath = path.join(WEB_DIR, "bug-report.css");
+    try {
+      res.set("Content-Type", "text/css; charset=utf-8");
+      res.send(fs.readFileSync(filePath));
+    } catch {
+      res.status(404).json({ error: "Asset not found" });
+    }
+  });
+  app.get("/bug-report.js", (_req: Request, res: Response) => {
+    const filePath = path.join(WEB_DIR, "bug-report.js");
+    try {
+      res.set("Content-Type", "application/javascript; charset=utf-8");
+      res.send(fs.readFileSync(filePath));
+    } catch {
+      res.status(404).json({ error: "Asset not found" });
+    }
   });
 
   // Serve images from web/images/

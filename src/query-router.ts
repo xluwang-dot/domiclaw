@@ -4,7 +4,7 @@
  * 对用户的查询类问题，优先从缓存查找匹配的查询方案并执行。
  * 缓存未命中时调用一次轻量 LLM 分类，执行后自动缓存。
  */
-import { nonStreamingApiCall } from "./agent.js";
+import { nonStreamingApiCall } from "./agent/model.js";
 import {
   MODEL_NAME, MODEL_BASE_URL, MODEL_API_KEY,
 } from "./config.js";
@@ -41,7 +41,7 @@ export async function routeViaCache(
 
   // 1. 缓存查找
   if (!skipCache) {
-    let cached = findCachedQuery(userInput);
+    const cached = findCachedQuery(userInput, userId);
     if (cached) {
       const result = await executeOperation(userId, JSON.parse(cached.operation_json));
       if (result !== null) return result;
@@ -58,12 +58,13 @@ export async function routeViaCache(
   const reply = await executeOperation(userId, intentResult.operation);
   if (reply === null) return null;
 
-  // 4. 缓存结果
+  // 4. 缓存结果（用户层）
   try {
     insertCachedQuery(
       userInput, intentResult.intent,
       JSON.stringify(intentResult.params),
       JSON.stringify(intentResult.operation),
+      userId,
     );
   } catch { /* ignore */ }
 
@@ -110,7 +111,15 @@ Rules:
     const jsonStr = text.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
     const parsed = JSON.parse(jsonStr) as { intent: string; params: Record<string, unknown>; operation: { action: string; params: Record<string, unknown> } };
     if (!parsed.intent || !parsed.operation?.action) return null;
-    return { intent: parsed.intent, params: parsed.params || {}, operation: parsed.operation };
+    const queryResult: QueryResult = { intent: parsed.intent, params: parsed.params || {}, operation: parsed.operation };
+    try {
+      insertCachedQuery(
+        userInput, queryResult.intent,
+        JSON.stringify(queryResult.params),
+        JSON.stringify(queryResult.operation),
+      );
+    } catch { /* ignore */ }
+    return queryResult;
   } catch {
     return null;
   }

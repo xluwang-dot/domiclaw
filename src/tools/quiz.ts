@@ -198,9 +198,16 @@ function formatQuestion(
   let out = `Q${num}/${total} (ID: ${q.id}) [${q.question_type}]: ${q.question_text}\n`;
   if (q.options) {
     try {
-      const opts = JSON.parse(q.options) as Record<string, string>;
-      for (const [k, v] of Object.entries(opts)) {
-        out += `  ${k}: ${v}\n`;
+      const parsed = JSON.parse(q.options);
+      if (Array.isArray(parsed)) {
+        const letters = "ABCDEFGHIJ";
+        for (let i = 0; i < parsed.length; i++) {
+          out += `  ${letters[i] || i}: ${parsed[i]}\n`;
+        }
+      } else {
+        for (const [k, v] of Object.entries(parsed as Record<string, string>)) {
+          out += `  ${k}: ${v}\n`;
+        }
       }
     } catch {
       out += `  Options: ${q.options}\n`;

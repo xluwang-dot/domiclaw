@@ -205,6 +205,7 @@ function createSchema(database: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS query_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
       pattern TEXT NOT NULL,
       intent TEXT NOT NULL,
       params_json TEXT,
@@ -213,7 +214,6 @@ function createSchema(database: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now')),
       last_hit_at TEXT DEFAULT (datetime('now'))
     );
-    CREATE INDEX IF NOT EXISTS idx_qc_pattern ON query_cache(pattern);
   `);
 
   // Seed common subjects on first run
@@ -326,6 +326,7 @@ export function initDatabase(): void {
     `ALTER TABLE subjects ADD COLUMN alias TEXT`,
     `ALTER TABLE knowledge_points ADD COLUMN alias TEXT`,
     `ALTER TABLE knowledge_points ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+    `ALTER TABLE query_cache ADD COLUMN user_id INTEGER`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -333,6 +334,8 @@ export function initDatabase(): void {
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id)"); } catch { /* ok */ }
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_parent_title ON knowledge_points(parent_id, title) WHERE parent_id IS NOT NULL"); } catch { /* ok */ }
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL"); } catch { /* ok */ }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_qc_user_pattern ON query_cache(user_id, pattern)"); } catch { /* ok */ }
+  try { db.exec("DROP INDEX IF EXISTS idx_qc_pattern"); } catch { /* ok */ }
 
   // Migrate tags->alias: extract en from {"en":"rational_number"} JSON
   try {
@@ -416,10 +419,9 @@ export function initDatabase(): void {
   // Init auth module
   initAuthDb(db);
 
-  // Seed query cache patterns (all users: 1 = admin, 2+ = students)
+  // Seed query cache patterns (system-level)
   try {
-    db.prepare("DELETE FROM query_cache WHERE hits <= 2").run();
-    seedQueryCache(1);
+    seedQueryCache();
   } catch { /* ok */ }
 }
 
@@ -1646,33 +1648,70 @@ export function getScheduledTasksByUser(userId: number): ScheduledTaskRow[] {
 // ── Query Cache ──
 
 export interface QueryCacheRow {
-  id: number; pattern: string; intent: string;
+  id: number; user_id: number | null; pattern: string; intent: string;
   params_json: string | null; operation_json: string;
   hits: number; created_at: string; last_hit_at: string;
 }
 
-export function findCachedQuery(userInput: string): QueryCacheRow | null {
-  const input = userInput.trim().toLowerCase();
-  const rows = db.prepare(
-    `SELECT * FROM query_cache WHERE ? LIKE '%' || pattern || '%'
-     ORDER BY hits DESC LIMIT 1`,
-  ).all(input) as QueryCacheRow[];
-  if (rows.length > 0) {
-    db.prepare(
-      `UPDATE query_cache SET hits = hits + 1, last_hit_at = datetime('now') WHERE id = ?`,
-    ).run(rows[0].id);
-    return rows[0];
+export function findCachedQuery(userInput: string, userId: number): QueryCacheRow | null {
+  const norm = normalizePattern(userInput);
+  if (!norm) return null;
+
+  for (const userClause of [`(user_id = ? AND pattern = ?)`, `(user_id IS NULL AND pattern = ?)`]) {
+    const rows = db.prepare(
+      `SELECT * FROM query_cache WHERE ${userClause} ORDER BY hits DESC LIMIT 1`,
+    ).all(userClause.startsWith("(user_id = ?") ? [userId, norm] : [norm]) as QueryCacheRow[];
+    if (rows.length > 0) {
+      db.prepare(
+        `UPDATE query_cache SET hits = hits + 1, last_hit_at = datetime('now') WHERE id = ?`,
+      ).run(rows[0].id);
+      return rows[0];
+    }
   }
   return null;
 }
 
+function normalizePattern(text: string): string {
+  return text.trim().toLowerCase().replace(/[，。！？、\s]+/g, "");
+}
+
 export function insertCachedQuery(
   pattern: string, intent: string, params_json: string | null, operation_json: string,
+  userId?: number,
 ): void {
-  db.prepare(
-    `INSERT INTO query_cache (pattern, intent, params_json, operation_json)
-     VALUES (?, ?, ?, ?)`,
-  ).run(pattern.trim().toLowerCase(), intent, params_json, operation_json);
+  const norm = normalizePattern(pattern);
+  if (!norm) return;
+
+  const insert = db.prepare(
+    `INSERT INTO query_cache (user_id, pattern, intent, params_json, operation_json)
+     VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  if (userId != null && userId > 0) {
+    const count = (db.prepare(
+      `SELECT COUNT(*) as c FROM query_cache WHERE user_id = ?`,
+    ).get(userId) as { c: number }).c;
+    if (count >= 100) {
+      db.prepare(
+        `DELETE FROM query_cache WHERE id = (
+          SELECT id FROM query_cache WHERE user_id = ? ORDER BY hits ASC LIMIT 1
+        )`,
+      ).run(userId);
+    }
+    insert.run(userId, norm, intent, params_json, operation_json);
+  } else {
+    const count = (db.prepare(
+      `SELECT COUNT(*) as c FROM query_cache WHERE user_id IS NULL AND intent = ?`,
+    ).get(intent) as { c: number }).c;
+    if (count >= 500) {
+      db.prepare(
+        `DELETE FROM query_cache WHERE id = (
+          SELECT id FROM query_cache WHERE user_id IS NULL AND intent = ? ORDER BY hits ASC LIMIT 1
+        )`,
+      ).run(intent);
+    }
+    insert.run(null, norm, intent, params_json, operation_json);
+  }
 }
 
 export function deleteCachedQuery(id: number): void {
@@ -1686,24 +1725,31 @@ export function purgeOldCache(days: number = 30): number {
   return result.changes;
 }
 
-export function seedQueryCache(userId: number): void {
+export function seedQueryCache(): void {
   const seedPatterns: { pattern: string; intent: string; params_json: string; operation_json: string }[] = [
-    { pattern: "我有哪些错题", intent: "query_wrong_questions", params_json: "{}",
-      operation_json: `{"action":"getWrongQuestions","params":{"userId":${userId}}}` },
-    { pattern: "今天要复习什么", intent: "query_due_reviews", params_json: "{}",
-      operation_json: `{"action":"getDueReviews","params":{"userId":${userId}}}` },
-    { pattern: "学习进度怎么样", intent: "query_study_stats", params_json: "{}",
-      operation_json: `{"action":"getStudyStats","params":{"userId":${userId}}}` },
-    { pattern: "学习计划是什么", intent: "query_study_plan", params_json: "{}",
-      operation_json: `{"action":"getStudyPlan","params":{"userId":${userId}}}` },
-    { pattern: "我的掌握度怎么样", intent: "query_study_stats", params_json: "{}",
-      operation_json: `{"action":"getStudyStats","params":{"userId":${userId}}}` },
+    { pattern: "我有哪些错题", intent: "query_wrong_questions", params_json: "{}", operation_json: `{"action":"getWrongQuestions","params":{}}` },
+    { pattern: "我的错题有哪些", intent: "query_wrong_questions", params_json: "{}", operation_json: `{"action":"getWrongQuestions","params":{}}` },
+    { pattern: "错题有哪些", intent: "query_wrong_questions", params_json: "{}", operation_json: `{"action":"getWrongQuestions","params":{}}` },
+    { pattern: "今天要复习什么", intent: "query_due_reviews", params_json: "{}", operation_json: `{"action":"getDueReviews","params":{}}` },
+    { pattern: "今天复习什么", intent: "query_due_reviews", params_json: "{}", operation_json: `{"action":"getDueReviews","params":{}}` },
+    { pattern: "学习进度怎么样", intent: "query_study_stats", params_json: "{}", operation_json: `{"action":"getStudyStats","params":{}}` },
+    { pattern: "我的掌握度怎么样", intent: "query_study_stats", params_json: "{}", operation_json: `{"action":"getStudyStats","params":{}}` },
+    { pattern: "学习计划是什么", intent: "query_study_plan", params_json: "{}", operation_json: `{"action":"getStudyPlan","params":{}}` },
+    { pattern: "我的学习计划", intent: "query_study_plan", params_json: "{}", operation_json: `{"action":"getStudyPlan","params":{}}` },
+    { pattern: "有什么要复习的", intent: "query_due_reviews", params_json: "{}", operation_json: `{"action":"getDueReviews","params":{}}` },
+    { pattern: "学习统计", intent: "query_study_stats", params_json: "{}", operation_json: `{"action":"getStudyStats","params":{}}` },
   ];
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO query_cache (pattern, intent, params_json, operation_json)
-     VALUES (?, ?, ?, ?)`,
-  );
   for (const s of seedPatterns) {
-    insert.run(s.pattern, s.intent, s.params_json, s.operation_json);
+    const norm = normalizePattern(s.pattern);
+    if (!norm) continue;
+    const exists = db.prepare(
+      `SELECT id FROM query_cache WHERE user_id IS NULL AND pattern = ? LIMIT 1`,
+    ).get(norm);
+    if (!exists) {
+      db.prepare(
+        `INSERT INTO query_cache (user_id, pattern, intent, params_json, operation_json)
+         VALUES (NULL, ?, ?, ?, ?)`,
+      ).run(norm, s.intent, s.params_json, s.operation_json);
+    }
   }
 }

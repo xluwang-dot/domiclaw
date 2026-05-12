@@ -53,3 +53,31 @@ export interface RegisteredTool {
     ctx: ToolContext,
   ) => Promise<string>;
 }
+
+// ============== Agent Types ==============
+
+export interface AgentInput {
+  prompt: string;
+  sessionId?: string;
+  isScheduledTask?: boolean;
+  assistantName?: string;
+  script?: string;
+  userId: number;
+}
+
+export interface AgentOutput {
+  status: "success" | "error";
+  result: string | null;
+  thinking: string | null;
+  isPartial?: boolean;
+  newSessionId?: string;
+  toolEvent?: ToolEvent;
+  error?: string;
+}
+
+export interface ToolEvent {
+  type: "tool_call" | "tool_result";
+  name: string;
+  args?: Record<string, unknown>;
+  resultPreview?: string;
+}

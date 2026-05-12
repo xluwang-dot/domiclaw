@@ -380,21 +380,15 @@ body.light .settings-dropdown { background: #fff; border-color: #ccc; }
 body.light .settings-section input, body.light .settings-section select { background: #f0f0f0; color: #222; border-color: #ccc; }
 body.light .property-panel { background: #fff; color: #222; }
 body.light .edges-svg text { fill: #666; }
-.bug-btn{position:fixed;bottom:16px;right:16px;width:40px;height:40px;border-radius:50%;border:none;background:#e05555;color:#fff;font-size:20px;cursor:pointer;z-index:10001;box-shadow:0 2px 8px rgba(0,0,0,.2);opacity:.7;transition:opacity .2s}.bug-btn:hover{opacity:1}
-.bug-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:10000}
-.bug-dialog{background:#fff;border:1px solid #ddd;border-radius:12px;padding:24px;width:420px;max-width:90vw}
-.bug-dialog h3{margin-bottom:12px;font-size:16px;color:#333}
-.bug-dialog input,.bug-dialog textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ccc;font-size:13px;margin-bottom:10px;outline:none;font-family:inherit}
-.bug-dialog textarea{min-height:80px;resize:vertical}
-.bug-dialog input:focus,.bug-dialog textarea:focus{border-color:#0a84ff}
-.bug-dialog .bug-meta{font-size:11px;color:#999;margin-bottom:10px;background:#f5f5f5;padding:8px;border-radius:4px;word-break:break-all}
-.bug-dialog .bug-actions{display:flex;gap:8px;justify-content:flex-end}
+body.light .katex, body.light .katex .mord, body.light .katex .mbin,
+body.light .katex .mrel, body.light .katex .mopen, body.light .katex .mclose,
+body.light .katex .mpunct, body.light .katex .minner, body.light .katex .mtext { color: #222 !important; }
 
 /* KaTeX dark theme overrides */
-.katex { color: #eee; font-size: 1.05em; }
+.katex { color: #ddd !important; font-size: 1.05em; }
 .katex-display { margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; }
-.chat-msg .katex-display { color: #eee; }
-.q-result .katex, .modal-expl .katex { color: #eee; }
+.katex .mord, .katex .mbin, .katex .mrel, .katex .mopen, .katex .mclose,
+.katex .mpunct, .katex .minner, .katex .mord.mathnormal, .katex .mtext { color: #ddd !important; }
 </style>
 </head>
 <body>
@@ -496,7 +490,9 @@ body.light .edges-svg text { fill: #666; }
         </template>
       </div>
       <div v-if="streaming" class="chat-msg bot" style="opacity:0.7">
-        {{ streamingText }}<span class="cursor-blink">|</span>
+        <div v-if="toolCallText" style="font-size:12px;color:#888;margin-bottom:4px">{{ toolCallText }}</div>
+        <span v-if="streamingText">{{ streamingText }}<span class="cursor-blink">|</span></span>
+        <span v-else style="color:#888">thinking...</span>
       </div>
     </div>
     <div class="chat-input-area">
@@ -975,6 +971,7 @@ Vue.createApp({
     const chatInput = ref('');
     const streaming = ref(false);
     const streamingText = ref('');
+    const toolCallText = ref('');
     const chatMsgs = ref(null);
 
     function scrollChat() {
@@ -997,6 +994,7 @@ Vue.createApp({
       chatInput.value = '';
       streaming.value = true;
       streamingText.value = '';
+      toolCallText.value = '';
 
       // Check if it's a quiz creation request
       const quizMatch = text.match(/create\s+(?:a\s+)?quiz\s+(?:with\s+)?(\d+)?\s*(?:questions?\s+)?(?:about\s+)?(.+)/i);
@@ -1037,7 +1035,16 @@ Vue.createApp({
       es.addEventListener('connected', () => {});
       es.addEventListener('status', (e) => {
         const d = JSON.parse(e.data);
-        if (d.phase === 'processing') streamingText.value = '';
+        if (d.phase === 'processing') { streamingText.value = ''; toolCallText.value = ''; }
+      });
+      es.addEventListener('tool_event', (e) => {
+        const d = JSON.parse(e.data);
+        if (d.type === 'tool_call') {
+          toolCallText.value = `Calling: ${d.name}`;
+        } else if (d.type === 'tool_result') {
+          const preview = d.resultPreview ? ` — ${d.resultPreview.substring(0, 80)}` : '';
+          toolCallText.value = `${d.name} done${preview}`;
+        }
       });
       es.addEventListener('thinking', (e) => {
         thinkingText += e.data ? JSON.parse(e.data).text || '' : '';
@@ -1065,12 +1072,13 @@ Vue.createApp({
           if (thinkingText) {
             // Attach hidden thinking to this bot message
             messages.value[msgIdx].thinking = thinkingText;
-            messages.value[msgIdx].thinkingShow = true;
+            messages.value[msgIdx].thinkingShow = false;
           }
         } else {
           addMessage('bot', 'Error: ' + (d.error || 'Unknown'));
         }
         thinkingText = '';
+        toolCallText.value = '';
         streaming.value = false;
         streamingText.value = '';
         es.close();
@@ -1200,6 +1208,7 @@ Vue.createApp({
       addMessage('user', text);
       streaming.value = true;
       streamingText.value = '';
+      toolCallText.value = '';
       // Try direct creation first
       await createQuizDirect(quizSubject.value || 'Mathematics', 5);
       streaming.value = false;
@@ -1496,17 +1505,7 @@ Vue.createApp({
   }
 }).mount('#app');
 </script>
-<button class="bug-btn" onclick="toggleBug()" title="Report Bug">&#x1F41B;</button>
-<div class="bug-modal" id="bugModal" style="display:none" onclick="if(event.target===this)toggleBug()">
-<div class="bug-dialog"><h3>&#x1F41B; Report Bug</h3>
-<input id="bugTitle" placeholder="Bug title" /><textarea id="bugDesc" placeholder="Description (optional)"></textarea>
-<div class="bug-meta" id="bugMeta"></div>
-<div class="bug-actions">
-<button onclick="toggleBug()" style="padding:6px 14px;border-radius:6px;border:1px solid #ccc;background:#f5f5f5;cursor:pointer;font-size:13px">Cancel</button>
-<button onclick="submitBug()" style="padding:6px 14px;border-radius:6px;border:none;background:#0a84ff;color:#fff;cursor:pointer;font-size:13px">Submit</button></div></div></div>
-<script>
-function toggleBug(){var m=document.getElementById('bugModal');m.style.display=m.style.display==='none'?'flex':'none';if(m.style.display==='flex'){document.getElementById('bugMeta').textContent=location.href+' | '+navigator.userAgent.substring(0,80)+' | '+new Date().toISOString()}}
-async function submitBug(){var t=document.getElementById('bugTitle').value.trim();if(!t){alert('Title required');return};var d=document.getElementById('bugDesc').value.trim();var p=document.getElementById('bugMeta').textContent;var r=await fetch('/api/bug-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,description:d,page:p})});var j=await r.json();if(j.id){alert('Bug #'+j.id+' reported. Thanks!');toggleBug();document.getElementById('bugTitle').value='';document.getElementById('bugDesc').value=''}else{alert('Failed: '+(j.error||'unknown'))}}
-</script>
+<link rel="stylesheet" href="bug-report.css">
+<script src="bug-report.js"></script>
 </body>
 </html>

@@ -18,6 +18,7 @@ import {
   cancelScheduledTask,
   initDatabase,
   storeMessage,
+  purgeOldCache,
 } from "./db.js";
 
 import { formatMessages } from "./router.js";
@@ -63,6 +64,14 @@ async function processScheduledTasks(): Promise<void> {
         },
         async (result: AgentOutput) => {
           if (result.isPartial) {
+            if (result.toolEvent) {
+              pushSse(userId, "tool_event", {
+                type: result.toolEvent.type,
+                name: result.toolEvent.name,
+                args: result.toolEvent.args || null,
+                resultPreview: result.toolEvent.resultPreview || null,
+              });
+            }
             if (result.thinking) pushSse(userId, "thinking", { text: result.thinking });
             if (result.result) pushSse(userId, "token", { text: result.result });
           } else if (result.status === "success" && result.result) {
@@ -131,6 +140,12 @@ async function startSchedulerLoop(): Promise<void> {
 async function main(): Promise<void> {
   initDatabase();
   logger.info("数据库已初始化");
+
+  // 每 6 小时清理 30 天未命中的查询缓存
+  setInterval(() => {
+    const deleted = purgeOldCache(30);
+    if (deleted > 0) logger.info({ deleted }, "AQC: 清理过期缓存");
+  }, 6 * 3600 * 1000);
 
   // 启动 Web 服务器
   startWebServer(saveTimestamp);
