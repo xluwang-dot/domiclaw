@@ -27,7 +27,10 @@ worklog.md
 web/images/
 
 # Graphify cache
-src/graphify-out/
+src/graphify-out/*
+graphify/*
+.gra
 
 # Temporary documents
 *.TXT
+*.txt
