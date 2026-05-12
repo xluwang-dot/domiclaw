@@ -17,39 +17,38 @@ registerTool("analyze_wrong_answer", {
     function: {
       name: "analyze_wrong_answer",
       description:
-        "Analyze a student's wrong answer to identify which related knowledge points are likely weak. " +
-        "Use this when the answer is incorrect and you want to pinpoint the root cause knowledge gaps.",
+        "分析学生的错误答案，识别可能薄弱的相关知识点。当答案不正确且想要确定根本原因的知识漏洞时使用此工具",
       parameters: {
         type: "object",
         properties: {
           question_content: {
             type: "string",
-            description: "The question text that the student answered",
+            description: "学生回答的问题文本",
           },
           student_answer: {
             type: "string",
-            description: "The student's incorrect answer",
+            description: "学生的错误答案",
           },
           correct_answer: {
             type: "string",
-            description: "The correct answer for reference",
+            description: "用于参考的正确答案",
           },
           related_kp_ids: {
             type: "array",
             items: { type: "number" },
-            description: "Candidate knowledge point IDs associated with this question",
+            description: "与此问题相关的候选知识点ID",
           },
           session_id: {
             type: "number",
-            description: "The quiz session ID (optional, used to update the answer record)",
+            description: "测验会话ID（可选，用于更新答案记录）",
           },
           question_id: {
             type: "number",
-            description: "The question ID (required to update tracking records)",
+            description: "问题ID（需要更新跟踪记录）",
           },
           user_id: {
             type: "number",
-            description: "The user ID (required to update tracking records)",
+            description: "用户ID（需要更新跟踪记录）",
           },
         },
         required: ["question_content", "student_answer", "correct_answer", "related_kp_ids"],

@@ -898,7 +898,7 @@ export function bulkImportUserQuestions(
 }
 
 // Admin: paginated questions with filters
-function getAllDescendantKpIds(rootId: number): number[] {
+export function getAllDescendantKpIds(rootId: number): number[] {
   const result: number[] = [rootId];
   const queue = [rootId];
   while (queue.length > 0) {

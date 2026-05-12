@@ -10,11 +10,11 @@ registerTool("schedule_daily_review", {
     type: "function",
     function: {
       name: "schedule_daily_review",
-      description: "Schedule a daily review reminder. The agent will proactively message the student at the specified time to check due reviews and study plan progress.",
+      description: "安排每日复习提醒。代理将在指定时间主动消息学生，检查待复习问题和学习计划进度",
       parameters: {
         type: "object",
         properties: {
-          time: { type: "string", description: "Time in HH:MM format (e.g. '09:00', '19:30')" },
+          time: { type: "string", description: "时间格式 HH:MM（例如：'09:00', '19:30'）" },
         },
         required: ["time"],
       },
@@ -42,11 +42,11 @@ registerTool("cancel_reminder", {
     type: "function",
     function: {
       name: "cancel_reminder",
-      description: "Cancel a scheduled reminder by its ID.",
+      description: "按ID取消安排的提醒",
       parameters: {
         type: "object",
         properties: {
-          task_id: { type: "string", description: "The reminder task ID" },
+          task_id: { type: "string", description: "提醒任务ID" },
         },
         required: ["task_id"],
       },
@@ -66,7 +66,7 @@ registerTool("list_reminders", {
     type: "function",
     function: {
       name: "list_reminders",
-      description: "List all active scheduled reminders for the current student.",
+      description: "列出当前学生的所有活动安排的提醒",
       parameters: {
         type: "object",
         properties: {},

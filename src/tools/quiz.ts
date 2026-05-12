@@ -15,8 +15,16 @@ import {
   setWrongQuestionRootKp,
   upsertKpWeakness,
   clearKpWeaknessIfMastered,
+  getAllDescendantKpIds,
 } from "../db.js";
 
+/**
+ * 检查学生答案是否正确
+ * @param studentAnswer 学生答案
+ * @param correctAnswer 正确答案
+ * @param questionType 问题类型
+ * @returns 是否正确
+ */
 function checkAnswer(studentAnswer: string, correctAnswer: string, questionType: string): boolean {
   const sa = studentAnswer.trim().toLowerCase();
   const ca = correctAnswer.trim().toLowerCase();
@@ -29,13 +37,13 @@ registerTool("create_quiz", {
     type: "function",
     function: {
       name: "create_quiz",
-      description: "Create a new quiz session for a student on a subject. Returns quiz intro and first question.",
+      description: "创建一个新的测验会话，返回测验介绍和第一个问题",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Subject name (e.g. Mathematics, Physics)" },
-          question_count: { type: "number", description: "Number of questions (default 5)" },
-          knowledge_point: { type: "string", description: "Optional: filter by knowledge point title" },
+          subject: { type: "string", description: "科目名称（例如：数学、物理）" },
+          question_count: { type: "number", description: "问题数量（默认5个）" },
+          knowledge_point: { type: "string", description: "可选：按知识点标题筛选" },
         },
         required: ["subject"],
       },
@@ -52,7 +60,41 @@ registerTool("create_quiz", {
       return `Subject "${subjectName}" not found. Available: ${names}`;
     }
 
-    let questions = getQuestionsBySubject(subject.id, 200);
+    let questions: any[] = [];
+    if (kpFilter) {
+      // 搜索指定知识点
+      const kpResults = searchKnowledgePoints(kpFilter, subject.id);
+      if (kpResults.length === 0) {
+        return `Knowledge point "${kpFilter}" not found in subject "${subjectName}".`;
+      }
+      
+      // 获取所有子知识点ID
+      const kpIds = new Set<number>();
+      for (const kp of kpResults) {
+        const descendantIds = getAllDescendantKpIds(kp.id);
+        descendantIds.forEach(id => kpIds.add(id));
+      }
+      
+      if (kpIds.size === 0) {
+        return `No knowledge points found for "${kpFilter}".`;
+      }
+      
+      // 查询指定知识点及其子知识点关联的题目
+      const kpIdArray = Array.from(kpIds);
+      const placeholders = kpIdArray.map(() => "?").join(",");
+      
+      questions = db.prepare(`
+        SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+               q.options, q.knowledge_point_id, q.knowledge_point_ids
+        FROM questions q
+        WHERE (q.knowledge_point_id IN (${placeholders}) 
+               OR q.knowledge_point_ids LIKE '%' || ? || '%')
+        AND q.status = 'published'
+      `).all(...kpIdArray, kpFilter.toLowerCase());
+    } else {
+      // 默认行为：获取科目下的所有题目
+      questions = getQuestionsBySubject(subject.id, 200);
+    }
 
     if (kpFilter) {
       questions = questions.filter((q) => {
@@ -86,13 +128,13 @@ registerTool("record_answer", {
     type: "function",
     function: {
       name: "record_answer",
-      description: "Record a student's answer to a quiz question. Returns whether correct, explanation, and next question or quiz summary.",
+      description: "记录学生对测验问题的答案，返回是否正确、解释以及下一个问题或测验总结",
       parameters: {
         type: "object",
         properties: {
-          session_id: { type: "number", description: "Quiz session ID" },
-          question_id: { type: "number", description: "Question ID being answered" },
-          answer: { type: "string", description: "Student's answer" },
+          session_id: { type: "number", description: "测验会话ID" },
+          question_id: { type: "number", description: "正在回答的问题ID" },
+          answer: { type: "string", description: "学生答案" },
         },
         required: ["session_id", "question_id", "answer"],
       },
@@ -150,11 +192,11 @@ registerTool("export_wrong_questions", {
     type: "function",
     function: {
       name: "export_wrong_questions",
-      description: "Export the student's wrong questions as formatted text for printing or review.",
+      description: "导出学生的错题作为格式化文本，用于打印或复习",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Optional: filter by subject name" },
+          subject: { type: "string", description: "可选：按科目名称筛选" },
         },
         required: [],
       },
@@ -184,12 +226,19 @@ registerTool("export_wrong_questions", {
     }
     out += `${"=".repeat(40)}\n`;
     out += `Total: ${wrong.length} wrong question(s)\n`;
-    out += `Active: ${wrong.filter(w => !w.mastered).length} | Mastered: ${wrong.filter(w => w.mastered).length}\n`;
+    out += `Active: ${wrong.filter(w => !w.mastered).length} | Mastered: ${wrong.filter(w => w.mastered).length}`;
 
     return out;
   },
 });
 
+/**
+ * 格式化问题显示
+ * @param num 问题序号
+ * @param total 总问题数
+ * @param q 问题对象
+ * @returns 格式化后的字符串
+ */
 function formatQuestion(
   num: number,
   total: number,

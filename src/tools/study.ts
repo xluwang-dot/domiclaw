@@ -15,17 +15,17 @@ registerTool("generate_study_plan", {
     function: {
       name: "generate_study_plan",
       description:
-        "Store a generated study plan. The plan_data is an array of {day, date, topic, task, completed:false} objects covering every day from start to end. Call this after you (the AI) have created the plan structure.",
+        "存储生成的学习计划。plan_data是一个包含{day, date, topic, task, completed:false}对象的数组，覆盖从开始到结束的每一天。在AI创建计划结构后调用此函数。",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Plan title (e.g. 'Math Midterm Prep')" },
-          subject: { type: "string", description: "Subject name (optional)" },
-          start_date: { type: "string", description: "Start date (YYYY-MM-DD)" },
-          end_date: { type: "string", description: "End date (YYYY-MM-DD)" },
+          title: { type: "string", description: "计划标题（例如：'数学期中备考'）" },
+          subject: { type: "string", description: "科目名称（可选）" },
+          start_date: { type: "string", description: "开始日期（YYYY-MM-DD）" },
+          end_date: { type: "string", description: "结束日期（YYYY-MM-DD）" },
           plan_data: {
             type: "array",
-            description: "Array of daily tasks. Each: {day: number, date: string, topic: string, task: string, completed: false}",
+            description: "每日任务数组。每个：{day: number, date: string, topic: string, task: string, completed: false}",
             items: {
               type: "object",
               properties: {
@@ -84,11 +84,11 @@ registerTool("get_study_plan", {
     type: "function",
     function: {
       name: "get_study_plan",
-      description: "Retrieve a study plan with progress. Shows completed and remaining tasks.",
+      description: "获取带有进度的学习计划，显示已完成和剩余任务",
       parameters: {
         type: "object",
         properties: {
-          plan_id: { type: "number", description: "Plan ID (optional, defaults to most recent active plan)" },
+          plan_id: { type: "number", description: "计划ID（可选，默认为最近的活动计划）" },
         },
         required: [],
       },
@@ -130,12 +130,12 @@ registerTool("mark_task_done", {
     type: "function",
     function: {
       name: "mark_task_done",
-      description: "Mark a study plan task as completed by its day index (0-based). Returns updated progress.",
+      description: "按天索引（从0开始）标记学习计划任务为已完成，返回更新后的进度",
       parameters: {
         type: "object",
         properties: {
-          plan_id: { type: "number", description: "Plan ID" },
-          day_index: { type: "number", description: "Day index (0-based, from plan listing)" },
+          plan_id: { type: "number", description: "计划ID" },
+          day_index: { type: "number", description: "天索引（从0开始，来自计划列表）" },
         },
         required: ["plan_id", "day_index"],
       },
@@ -161,7 +161,7 @@ registerTool("get_study_progress", {
     type: "function",
     function: {
       name: "get_study_progress",
-      description: "Get overall study progress: active plans, completion rates, upcoming tasks.",
+      description: "获取整体学习进度：活动计划、完成率、 upcoming任务",
       parameters: {
         type: "object",
         properties: {},
@@ -189,6 +189,11 @@ registerTool("get_study_progress", {
   },
 });
 
+/**
+ * 渲染进度条
+ * @param percent 完成百分比
+ * @returns 进度条字符串
+ */
 function renderProgressBar(percent: number): string {
   const filled = Math.round(percent / 10);
   return "[" + "█".repeat(filled) + "░".repeat(10 - filled) + `] ${percent}%`;

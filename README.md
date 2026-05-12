@@ -225,4 +225,4 @@ interval — 每 N 分钟运行一次
 
 ## 许可证
 
-ISC
+MIC

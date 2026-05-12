@@ -13,14 +13,14 @@ registerTool("add_knowledge_point", {
     type: "function",
     function: {
       name: "add_knowledge_point",
-      description: "Add a knowledge point (topic) for a subject. Store explanations, formulas, concepts.",
+      description: "为科目添加知识点（主题），存储解释、公式、概念等内容",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Subject name (e.g. Mathematics)" },
-          title: { type: "string", description: "Title of the knowledge point" },
-          content: { type: "string", description: "Detailed content/explanation" },
-          alias: { type: "string", description: "Optional English alias for the knowledge point" },
+          subject: { type: "string", description: "科目名称（例如：数学）" },
+          title: { type: "string", description: "知识点标题" },
+          content: { type: "string", description: "详细内容/解释" },
+          alias: { type: "string", description: "可选的英文别名" },
         },
         required: ["subject", "title"],
       },
@@ -48,12 +48,12 @@ registerTool("search_knowledge", {
     type: "function",
     function: {
       name: "search_knowledge",
-      description: "Search stored knowledge points by keyword. Returns matching topics with content.",
+      description: "按关键词搜索存储的知识点，返回匹配的主题及其内容",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Search keyword" },
-          subject: { type: "string", description: "Optional: limit to a specific subject" },
+          query: { type: "string", description: "搜索关键词" },
+          subject: { type: "string", description: "可选：限制在特定科目内" },
         },
         required: ["query"],
       },
@@ -87,28 +87,28 @@ registerTool("add_exam_paper", {
     type: "function",
     function: {
       name: "add_exam_paper",
-      description: "Store an exam paper with questions. Questions are stored and can be used in quizzes.",
+      description: "存储包含问题的试卷，问题会被保存并可用于测验",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Subject name" },
-          title: { type: "string", description: "Exam paper title (e.g. '2024 Midterm')" },
-          exam_date: { type: "string", description: "Optional exam date (ISO format)" },
-          total_score: { type: "number", description: "Total score (default 100)" },
-          duration_minutes: { type: "number", description: "Duration in minutes (default 60)" },
+          subject: { type: "string", description: "科目名称" },
+          title: { type: "string", description: "试卷标题（例如：'2024期中考试'）" },
+          exam_date: { type: "string", description: "可选考试日期（ISO格式）" },
+          total_score: { type: "number", description: "总分（默认100）" },
+          duration_minutes: { type: "number", description: "时长（分钟，默认60）" },
           questions: {
             type: "array",
-            description: "Array of question objects",
+            description: "问题对象数组",
             items: {
               type: "object",
               properties: {
-                text: { type: "string", description: "Question text" },
-                answer: { type: "string", description: "Correct answer" },
-                explanation: { type: "string", description: "Optional explanation" },
-                type: { type: "string", description: "Question type: multiple_choice, short_answer, or essay" },
-                options: { type: "string", description: "For multiple_choice: JSON like {\"A\":\"...\",\"B\":\"...\"}" },
-                difficulty: { type: "number", description: "Difficulty 1-5 (default 1)" },
-                knowledge_point: { type: "string", description: "Optional knowledge point title to link to" },
+                text: { type: "string", description: "问题文本" },
+                answer: { type: "string", description: "正确答案" },
+                explanation: { type: "string", description: "可选解释" },
+                type: { type: "string", description: "问题类型：multiple_choice, short_answer, 或 essay" },
+                options: { type: "string", description: "对于选择题：JSON格式如{\"A\":\"...\",\"B\":\"...\"}" },
+                difficulty: { type: "number", description: "难度1-5（默认1）" },
+                knowledge_point: { type: "string", description: "可选知识点标题用于关联" },
               },
               required: ["text", "answer"],
             },
@@ -159,24 +159,24 @@ registerTool("import_questions", {
     type: "function",
     function: {
       name: "import_questions",
-      description: "Bulk import questions for a subject. Questions are stored directly without an exam paper.",
+      description: "批量导入科目的问题，问题直接存储而不创建试卷",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Subject name" },
+          subject: { type: "string", description: "科目名称" },
           questions: {
             type: "array",
-            description: "Array of question objects",
+            description: "问题对象数组",
             items: {
               type: "object",
               properties: {
-                text: { type: "string", description: "Question text" },
-                answer: { type: "string", description: "Correct answer" },
-                explanation: { type: "string", description: "Optional explanation" },
-                type: { type: "string", description: "short_answer, multiple_choice, or essay" },
-                options: { type: "string", description: "For multiple_choice: JSON options" },
+                text: { type: "string", description: "问题文本" },
+                answer: { type: "string", description: "正确答案" },
+                explanation: { type: "string", description: "可选解释" },
+                type: { type: "string", description: "short_answer, multiple_choice, 或 essay" },
+                options: { type: "string", description: "对于选择题：JSON选项" },
                 difficulty: { type: "number", description: "1-5" },
-                knowledge_point: { type: "string", description: "Knowledge point title to link" },
+                knowledge_point: { type: "string", description: "知识点标题用于关联" },
               },
               required: ["text", "answer"],
             },

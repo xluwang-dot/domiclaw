@@ -1,8 +1,6 @@
 # Dependencies
 node_modules/
 dist/
-data/*
-!data/agent/
 *log*/
 
 # Database
@@ -24,7 +22,7 @@ CLAUDE.md
 worklog.md
 
 # images file (local only)
-web/images/
+web/images/*
 
 # Graphify cache
 src/graphify-out/*

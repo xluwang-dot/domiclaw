@@ -19,12 +19,11 @@ registerTool("get_due_reviews", {
     function: {
       name: "get_due_reviews",
       description:
-        "Get questions due for spaced repetition review, plus weak knowledge point spot-check reviews. " +
-        "Returns SM-2 due questions and, for KPs with mastery < 0.6, 2-3 random questions each.",
+        "获取待复习的间隔重复问题，以及薄弱知识点的抽查复习。返回SM-2到期问题和掌握度<0.6的知识点的2-3个随机问题",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Optional: filter by subject name" },
+          subject: { type: "string", description: "可选：按科目名称筛选" },
         },
         required: [],
       },
@@ -117,12 +116,12 @@ registerTool("review_answer", {
     type: "function",
     function: {
       name: "review_answer",
-      description: "Submit an answer for a spaced repetition review question. Updates the review schedule based on correctness.",
+      description: "提交间隔重复复习问题的答案，根据正确性更新复习计划",
       parameters: {
         type: "object",
         properties: {
-          wrong_question_id: { type: "number", description: "The wrong_question review ID (from get_due_reviews)" },
-          answer: { type: "string", description: "Student's answer" },
+          wrong_question_id: { type: "number", description: "错误的复习ID（来自get_due_reviews）" },
+          answer: { type: "string", description: "学生答案" },
         },
         required: ["wrong_question_id", "answer"],
       },
@@ -177,12 +176,11 @@ registerTool("get_study_stats", {
     function: {
       name: "get_study_stats",
       description:
-        "Get comprehensive study statistics: quiz accuracy, SM-2 stats, " +
-        "overall KP mastery, top 5 weakest knowledge points, weakness cleanup progress.",
+        "获取全面的学习统计：测验准确率、SM-2统计、整体知识点掌握度、前5个最薄弱知识点、弱点清理进度",
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "Optional: filter by subject" },
+          subject: { type: "string", description: "可选：按科目筛选" },
         },
         required: [],
       },
