@@ -13,7 +13,7 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
-function createSchema(database: Database.Database): void {
+export function createSchema(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -895,6 +895,14 @@ export function bulkImportUserQuestions(
     return count;
   });
   return { imported: insertMany() };
+}
+
+/**
+ * 设置测试数据库（仅测试环境使用）
+ * 替换模块内部的 db 实例为传入的 :memory: 数据库
+ */
+export function useTestDatabase(testDb: Database.Database): void {
+  db = testDb;
 }
 
 // Admin: paginated questions with filters

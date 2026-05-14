@@ -2,6 +2,7 @@ import { registerTool } from "./index.js";
 import {
   createQuizSession,
   getAllSubjects,
+  getDatabase,
   getKnowledgePointById,
   getQuestionById,
   getQuestionsBySubject,
@@ -83,7 +84,7 @@ registerTool("create_quiz", {
       const kpIdArray = Array.from(kpIds);
       const placeholders = kpIdArray.map(() => "?").join(",");
       
-      questions = db.prepare(`
+      questions = getDatabase().prepare(`
         SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
                q.options, q.knowledge_point_id, q.knowledge_point_ids
         FROM questions q
