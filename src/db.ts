@@ -214,6 +214,15 @@ export function createSchema(database: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now')),
       last_hit_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS user_testlevelconfig (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level INTEGER NOT NULL UNIQUE,
+      question_count INTEGER NOT NULL,
+      easy_ratio REAL NOT NULL,
+      medium_ratio REAL NOT NULL,
+      hard_ratio REAL NOT NULL
+    );
   `);
 
   // Seed common subjects on first run
@@ -239,6 +248,19 @@ export function createSchema(database: Database.Database): void {
     for (const s of subjects) {
       insert.run(s.name, s.name_cn, s.alias, null, now);
     }
+  }
+
+  // Seed test level config
+  const levelCount = database.prepare(
+    "SELECT COUNT(*) as cnt FROM user_testlevelconfig",
+  ).get() as { cnt: number };
+  if (levelCount.cnt === 0) {
+    const insert = database.prepare(
+      "INSERT INTO user_testlevelconfig (level, question_count, easy_ratio, medium_ratio, hard_ratio) VALUES (?, ?, ?, ?, ?)"
+    );
+    insert.run(1, 30, 0.7, 0.2, 0.1);
+    insert.run(2, 20, 0.4, 0.3, 0.3);
+    insert.run(3, 15, 0.1, 0.2, 0.7);
   }
 }
 
@@ -1632,6 +1654,20 @@ export function getNotebookStats(userId: number): {
     weakness_total,
     weakness_cleared: Math.max(0, masteredCount - weakness_total),
   };
+}
+
+export interface TestLevelConfig {
+  level: number;
+  question_count: number;
+  easy_ratio: number;
+  medium_ratio: number;
+  hard_ratio: number;
+}
+
+export function getTestLevelConfig(level: number): TestLevelConfig | undefined {
+  return db.prepare(
+    "SELECT level, question_count, easy_ratio, medium_ratio, hard_ratio FROM user_testlevelconfig WHERE level = ?"
+  ).get(level) as TestLevelConfig | undefined;
 }
 
 // ============== Scheduled task queries ==============

@@ -19,6 +19,7 @@ import {
   getAllDescendantKpIds,
   updateQuestionStats,
   getQuestionDifficulty,
+  getTestLevelConfig,
 } from "../db.js";
 
 /**
@@ -49,6 +50,7 @@ registerTool("create_quiz", {
           knowledge_point: { type: "string", description: "可选：按知识点标题筛选" },
           min_difficulty: { type: "number", description: "可选：最低难度（0-1），只返回难度不低于此值的题目" },
           max_difficulty: { type: "number", description: "可选：最高难度（0-1），只返回难度不高于此值的题目" },
+          test_level: { type: "number", description: "可选：测试等级（1/2/3），按预设难度分布出题，会覆盖 question_count" },
         },
         required: ["subject"],
       },
@@ -56,8 +58,18 @@ registerTool("create_quiz", {
   },
   async execute(args, ctx) {
     const subjectName = args.subject as string;
-    const questionCount = (args.question_count as number) || 5;
+    let questionCount = (args.question_count as number) || 5;
     const kpFilter = args.knowledge_point as string | undefined;
+    const testLevel = args.test_level as number | undefined;
+
+    // 按测试等级覆盖题目数量和难度分布
+    if (testLevel !== undefined) {
+      const cfg = getTestLevelConfig(testLevel);
+      if (!cfg) {
+        return `Invalid test_level "${testLevel}". Available: 1, 2, 3.`;
+      }
+      questionCount = cfg.question_count;
+    }
 
     const subject = getSubjectByName(subjectName);
     if (!subject) {
@@ -125,7 +137,33 @@ registerTool("create_quiz", {
     }
 
     // Select random questions
-    const selected = questions.sort(() => Math.random() - 0.5).slice(0, Math.min(questionCount, questions.length));
+    let selected: any[];
+    if (testLevel !== undefined) {
+      // 按等级按难度分层抽题
+      const cfg = getTestLevelConfig(testLevel)!;
+      const ratios = [cfg.easy_ratio, cfg.medium_ratio, cfg.hard_ratio];
+      const diffValues = [testLevel, testLevel + 1, testLevel + 2];
+      const pool: any[] = [];
+
+      for (let i = 0; i < 3; i++) {
+        const diff = diffValues[i];
+        const ratio = ratios[i];
+        const count = i < 2
+          ? Math.round(questionCount * ratio)
+          : questionCount - pool.length;
+
+        const bucket = questions
+          .filter((q) => q.difficulty === diff)
+          .sort(() => Math.random() - 0.5)
+          .slice(0, count);
+
+        pool.push(...bucket);
+      }
+
+      selected = pool.sort(() => Math.random() - 0.5);
+    } else {
+      selected = questions.sort(() => Math.random() - 0.5).slice(0, Math.min(questionCount, questions.length));
+    }
     const sessionId = createQuizSession(subject.id, ctx.userId);
 
     // Return the full quiz with all questions
