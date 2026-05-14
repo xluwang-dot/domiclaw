@@ -96,6 +96,8 @@ export function createSchema(database: Database.Database): void {
       answer TEXT NOT NULL,
       explanation TEXT,
       difficulty INTEGER DEFAULT 1,
+      times_answered INTEGER NOT NULL DEFAULT 0,
+      times_correct INTEGER NOT NULL DEFAULT 0,
       question_type TEXT NOT NULL DEFAULT 'short_answer',
       options TEXT,
       status TEXT NOT NULL DEFAULT 'published',
@@ -327,6 +329,8 @@ export function initDatabase(): void {
     `ALTER TABLE knowledge_points ADD COLUMN alias TEXT`,
     `ALTER TABLE knowledge_points ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
     `ALTER TABLE query_cache ADD COLUMN user_id INTEGER`,
+    `ALTER TABLE questions ADD COLUMN times_answered INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE questions ADD COLUMN times_correct INTEGER NOT NULL DEFAULT 0`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -744,6 +748,39 @@ export function getQuestionById(id: number): QuestionRow | undefined {
             options, knowledge_point_id
      FROM questions WHERE id = ?`,
   ).get(id) as QuestionRow | undefined;
+}
+
+/**
+ * 更新题目答题统计
+ * @param questionId 题目ID
+ * @param isCorrect 是否回答正确
+ */
+export function updateQuestionStats(questionId: number, isCorrect: boolean): void {
+  db.prepare("UPDATE questions SET times_answered = times_answered + 1 WHERE id = ?").run(questionId);
+  if (isCorrect) {
+    db.prepare("UPDATE questions SET times_correct = times_correct + 1 WHERE id = ?").run(questionId);
+  }
+}
+
+/**
+ * 获取题目的经验校准难度
+ * 经验难度 = 1 - (times_correct / times_answered)
+ * 最终难度 = (1 - 可信度) × 初始难度 + 可信度 × 经验难度
+ * 可信度 = min(times_answered / 20, 1)
+ * @param questionId 题目ID
+ * @returns 计算后的难度值
+ */
+export function getQuestionDifficulty(questionId: number): number {
+  const row = db.prepare(
+    `SELECT difficulty, times_answered, times_correct FROM questions WHERE id = ?`
+  ).get(questionId) as { difficulty: number; times_answered: number; times_correct: number } | undefined;
+
+  if (!row) return 1;
+  if (row.times_answered === 0) return row.difficulty;
+
+  const empirical = 1 - (row.times_correct / row.times_answered);
+  const credibility = Math.min(row.times_answered / 20, 1);
+  return (1 - credibility) * row.difficulty + credibility * empirical;
 }
 
 

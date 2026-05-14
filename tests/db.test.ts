@@ -12,10 +12,22 @@ import {
   addQuestion,
   getQuestionById,
   getQuestionsBySubject,
+  updateQuestionStats,
+  getQuestionDifficulty,
+  recordQuizAnswer,
 } from "../src/db.js";
 import { initAuthDb } from "../src/auth.js";
 
 let testDb: Database.Database;
+
+function createTestSubject(): number {
+  return addSubject("TestSubject", null);
+}
+
+function createTestQuestion(subjectId: number, difficulty = 3): number {
+  const kpId = addKnowledgePoint(subjectId, "TestKP", "test");
+  return addQuestion(null, kpId, "Test question?", "Answer", "short_answer", undefined, difficulty);
+}
 
 beforeEach(() => {
   testDb = new Database(":memory:");
@@ -98,6 +110,131 @@ describe("questions", () => {
     expect(questions.length).toBe(2);
     questions.forEach((q) => {
       expect(q.knowledge_point_id).toBe(kpId);
-    });
   });
+});
+
+describe("difficulty tracking — field migration", () => {
+  it("should have times_answered and times_correct columns with defaults", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    const row = testDb.prepare(
+      "SELECT times_answered, times_correct FROM questions WHERE id = ?"
+    ).get(qId) as { times_answered: number; times_correct: number };
+
+    expect(row.times_answered).toBe(0);
+    expect(row.times_correct).toBe(0);
+  });
+});
+
+describe("difficulty tracking — updateQuestionStats", () => {
+  it("should increment times_answered on any answer", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    updateQuestionStats(qId, true);
+    const row = testDb.prepare("SELECT times_answered FROM questions WHERE id = ?")
+      .get(qId) as { times_answered: number };
+    expect(row.times_answered).toBe(1);
+  });
+
+  it("should increment times_correct on correct answer", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    updateQuestionStats(qId, true);
+    const row = testDb.prepare("SELECT times_correct FROM questions WHERE id = ?")
+      .get(qId) as { times_correct: number };
+    expect(row.times_correct).toBe(1);
+  });
+
+  it("should NOT increment times_correct on wrong answer", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    updateQuestionStats(qId, false);
+    const row = testDb.prepare("SELECT times_correct FROM questions WHERE id = ?")
+      .get(qId) as { times_correct: number };
+    expect(row.times_correct).toBe(0);
+  });
+
+  it("should accumulate stats across multiple answers", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    for (let i = 0; i < 3; i++) updateQuestionStats(qId, true);
+    for (let i = 0; i < 2; i++) updateQuestionStats(qId, false);
+
+    const row = testDb.prepare(
+      "SELECT times_answered, times_correct FROM questions WHERE id = ?"
+    ).get(qId) as { times_answered: number; times_correct: number };
+
+    expect(row.times_answered).toBe(5);
+    expect(row.times_correct).toBe(3);
+  });
+});
+
+describe("difficulty tracking — getQuestionDifficulty", () => {
+  it("should return initial difficulty when no answers recorded", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    const diff = getQuestionDifficulty(qId);
+    expect(diff).toBe(3);
+  });
+
+  it("should blend empirical data with initial difficulty", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 5);
+
+    // 10 answers, 3 correct → empirical = 1 - 3/10 = 0.7
+    for (let i = 0; i < 3; i++) updateQuestionStats(qId, true);
+    for (let i = 0; i < 7; i++) updateQuestionStats(qId, false);
+
+    // credibility = 10/20 = 0.5
+    // difficulty = (1-0.5) * 5 + 0.5 * 0.7 = 2.5 + 0.35 = 2.85
+    const diff = getQuestionDifficulty(qId);
+    expect(diff).toBeCloseTo(0.5 * 5 + 0.5 * 0.7, 4);
+  });
+
+  it("should converge to empirical difficulty with 20+ answers", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 5);
+
+    // 20 answers, 15 correct → empirical = 1 - 15/20 = 0.25
+    for (let i = 0; i < 15; i++) updateQuestionStats(qId, true);
+    for (let i = 0; i < 5; i++) updateQuestionStats(qId, false);
+
+    // credibility = min(20/20, 1) = 1
+    // difficulty = 0 * 5 + 1 * 0.25 = 0.25
+    const diff = getQuestionDifficulty(qId);
+    expect(diff).toBeCloseTo(0.25, 4);
+  });
+
+  it("should return ~1.0 when all answers wrong", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    for (let i = 0; i < 20; i++) updateQuestionStats(qId, false);
+
+    const diff = getQuestionDifficulty(qId);
+    expect(diff).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it("should return ~0.0 when all answers correct", () => {
+    const subjId = createTestSubject();
+    const qId = createTestQuestion(subjId, 3);
+
+    for (let i = 0; i < 20; i++) updateQuestionStats(qId, true);
+
+    const diff = getQuestionDifficulty(qId);
+    expect(diff).toBeLessThanOrEqual(0.1);
+  });
+
+  it("should handle non-existent question gracefully", () => {
+    const diff = getQuestionDifficulty(99999);
+    expect(diff).toBeDefined();
+    expect(typeof diff).toBe("number");
+  });
+});
 });

@@ -11,6 +11,7 @@ import {
   getKpMasteryStats,
   getKnowledgePointById,
   getQuestionsByKnowledgePoint,
+  updateQuestionStats,
 } from "../db.js";
 
 registerTool("get_due_reviews", {
@@ -147,6 +148,7 @@ registerTool("review_answer", {
       question.question_type === "multiple_choice"
         ? sa === ca
         : sa.includes(ca) || ca.includes(sa);
+    updateQuestionStats(question.id, correct);
 
     const result = updateReviewResult(wqId, correct);
 

@@ -17,6 +17,8 @@ import {
   upsertKpWeakness,
   clearKpWeaknessIfMastered,
   getAllDescendantKpIds,
+  updateQuestionStats,
+  getQuestionDifficulty,
 } from "../db.js";
 
 /**
@@ -45,6 +47,8 @@ registerTool("create_quiz", {
           subject: { type: "string", description: "科目名称（例如：数学、物理）" },
           question_count: { type: "number", description: "问题数量（默认5个）" },
           knowledge_point: { type: "string", description: "可选：按知识点标题筛选" },
+          min_difficulty: { type: "number", description: "可选：最低难度（0-1），只返回难度不低于此值的题目" },
+          max_difficulty: { type: "number", description: "可选：最高难度（0-1），只返回难度不高于此值的题目" },
         },
         required: ["subject"],
       },
@@ -104,6 +108,18 @@ registerTool("create_quiz", {
       });
     }
 
+    // 按难度筛选
+    const minDiff = args.min_difficulty as number | undefined;
+    const maxDiff = args.max_difficulty as number | undefined;
+    if (minDiff !== undefined || maxDiff !== undefined) {
+      questions = questions.filter((q) => {
+        const d = getQuestionDifficulty(q.id);
+        if (minDiff !== undefined && d < minDiff) return false;
+        if (maxDiff !== undefined && d > maxDiff) return false;
+        return true;
+      });
+    }
+
     if (questions.length === 0) {
       return `No questions found for "${subjectName}". Add some with add_exam_paper or add_knowledge_point first.`;
     }
@@ -151,6 +167,7 @@ registerTool("record_answer", {
     if (!question) return `Question ${questionId} not found.`;
 
     const correct = checkAnswer(studentAnswer, question.answer, question.question_type);
+    updateQuestionStats(questionId, correct);
 
     // Determine subject_id from the primary KP
     let subjectId = 0;
