@@ -186,26 +186,19 @@ export function createSchema(database: Database.Database): void {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS user_kp_mastery (
+    CREATE TABLE IF NOT EXISTS user_notebook (
       user_id INTEGER NOT NULL,
       subject_id INTEGER NOT NULL,
       kp_id INTEGER NOT NULL,
       mastery REAL NOT NULL DEFAULT 0.5,
-      last_updated TEXT NOT NULL,
-      PRIMARY KEY (user_id, subject_id, kp_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_ukm_user ON user_kp_mastery(user_id);
-    CREATE INDEX IF NOT EXISTS idx_ukm_kp ON user_kp_mastery(kp_id);
-
-    CREATE TABLE IF NOT EXISTS user_kp_weakness (
-      user_id INTEGER NOT NULL,
-      subject_id INTEGER NOT NULL,
-      kp_id INTEGER NOT NULL,
-      total_wrong INTEGER DEFAULT 1,
+      total_wrong INTEGER NOT NULL DEFAULT 0,
       representative_question_id INTEGER,
       last_wrong_time TEXT,
+      last_updated TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (user_id, subject_id, kp_id)
     );
+    CREATE INDEX IF NOT EXISTS idx_un_user ON user_notebook(user_id);
+    CREATE INDEX IF NOT EXISTS idx_un_kp ON user_notebook(kp_id);
 
     CREATE TABLE IF NOT EXISTS query_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -359,48 +352,45 @@ export function initDatabase(): void {
   // Drop tags column (SQLite 3.35+)
   try { db.exec("ALTER TABLE knowledge_points DROP COLUMN tags"); } catch { /* already dropped */ }
 
-  // Rebuild user_kp_mastery with (user_id, subject_id, kp_id) PK if needed
-  const masteryCols = db.prepare("PRAGMA table_info(user_kp_mastery)").all() as { name: string }[];
-  if (!masteryCols.some((c) => c.name === "subject_id")) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS user_kp_mastery_new (
-        user_id INTEGER NOT NULL,
-        subject_id INTEGER NOT NULL,
-        kp_id INTEGER NOT NULL,
-        mastery REAL NOT NULL DEFAULT 0.5,
-        last_updated TEXT NOT NULL,
-        PRIMARY KEY (user_id, subject_id, kp_id)
-      );
-      INSERT OR IGNORE INTO user_kp_mastery_new (user_id, subject_id, kp_id, mastery, last_updated)
-        SELECT m.user_id, COALESCE(kp.subject_id, 0), m.kp_id, m.mastery, m.last_updated
-        FROM user_kp_mastery m LEFT JOIN knowledge_points kp ON m.kp_id = kp.id;
-      DROP TABLE user_kp_mastery;
-      ALTER TABLE user_kp_mastery_new RENAME TO user_kp_mastery;
-      CREATE INDEX IF NOT EXISTS idx_ukm_user ON user_kp_mastery(user_id);
-      CREATE INDEX IF NOT EXISTS idx_ukm_kp ON user_kp_mastery(kp_id);
-    `);
-  }
-
-  // Rebuild user_kp_weakness with (user_id, subject_id, kp_id) PK if needed
-  const weaknessCols = db.prepare("PRAGMA table_info(user_kp_weakness)").all() as { name: string }[];
-  if (!weaknessCols.some((c) => c.name === "subject_id")) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS user_kp_weakness_new (
-        user_id INTEGER NOT NULL,
-        subject_id INTEGER NOT NULL,
-        kp_id INTEGER NOT NULL,
-        total_wrong INTEGER DEFAULT 1,
-        representative_question_id INTEGER,
-        last_wrong_time TEXT,
-        PRIMARY KEY (user_id, subject_id, kp_id)
-      );
-      INSERT OR IGNORE INTO user_kp_weakness_new (user_id, subject_id, kp_id, total_wrong, representative_question_id, last_wrong_time)
-        SELECT w.user_id, COALESCE(kp.subject_id, 0), w.kp_id, w.total_wrong, w.representative_question_id, w.last_wrong_time
-        FROM user_kp_weakness w LEFT JOIN knowledge_points kp ON w.kp_id = kp.id;
-      DROP TABLE user_kp_weakness;
-      ALTER TABLE user_kp_weakness_new RENAME TO user_kp_weakness;
-    `);
-  }
+  // Merge user_kp_mastery + user_kp_weakness → user_notebook
+  try {
+    const hasOldMastery = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_kp_mastery'").get();
+    if (hasOldMastery) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_notebook (
+          user_id INTEGER NOT NULL,
+          subject_id INTEGER NOT NULL,
+          kp_id INTEGER NOT NULL,
+          mastery REAL NOT NULL DEFAULT 0.5,
+          total_wrong INTEGER NOT NULL DEFAULT 0,
+          representative_question_id INTEGER,
+          last_wrong_time TEXT,
+          last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (user_id, subject_id, kp_id)
+        );
+        INSERT OR IGNORE INTO user_notebook (user_id, subject_id, kp_id, mastery, total_wrong, representative_question_id, last_wrong_time, last_updated)
+          SELECT m.user_id, m.subject_id, m.kp_id, m.mastery,
+            COALESCE(w.total_wrong, 0), w.representative_question_id, w.last_wrong_time,
+            m.last_updated
+          FROM user_kp_mastery m
+          LEFT JOIN user_kp_weakness w
+            ON m.user_id = w.user_id AND m.subject_id = w.subject_id AND m.kp_id = w.kp_id;
+        INSERT OR IGNORE INTO user_notebook (user_id, subject_id, kp_id, mastery, total_wrong, representative_question_id, last_wrong_time, last_updated)
+          SELECT w.user_id, w.subject_id, w.kp_id, 0.5,
+            w.total_wrong, w.representative_question_id, w.last_wrong_time,
+            w.last_wrong_time
+          FROM user_kp_weakness w
+          WHERE NOT EXISTS (
+            SELECT 1 FROM user_kp_mastery m
+            WHERE m.user_id = w.user_id AND m.subject_id = w.subject_id AND m.kp_id = w.kp_id
+          );
+        DROP TABLE IF EXISTS user_kp_mastery;
+        DROP TABLE IF EXISTS user_kp_weakness;
+        CREATE INDEX IF NOT EXISTS idx_un_user ON user_notebook(user_id);
+        CREATE INDEX IF NOT EXISTS idx_un_kp ON user_notebook(kp_id);
+      `);
+    }
+  } catch { /* already migrated — skip */ }
 
   // Seed name_cn/alias for existing subjects (idempotent)
   const nameCnMap: Record<string, { name_cn: string; alias: string | null }> = {
@@ -1095,11 +1085,11 @@ export function getUserProfile(userId: number): {
   ).get(userId) as { cnt: number };
 
   const weakKps = db.prepare(
-    "SELECT COUNT(*) as cnt FROM user_kp_weakness WHERE user_id = ?",
+    "SELECT COUNT(*) as cnt FROM user_notebook WHERE user_id = ? AND total_wrong > 0",
   ).get(userId) as { cnt: number };
 
   const masteryRows = db.prepare(
-    "SELECT mastery FROM user_kp_mastery WHERE user_id = ?",
+    "SELECT mastery FROM user_notebook WHERE user_id = ?",
   ).all(userId) as { mastery: number }[];
 
   const avg = masteryRows.length > 0
@@ -1126,8 +1116,7 @@ export function deleteUserCascade(userId: number): void {
     db.prepare("DELETE FROM study_plans WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM scheduled_tasks WHERE user_id = ?").run(String(userId));
     db.prepare("DELETE FROM session_context WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM user_kp_mastery WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM user_kp_weakness WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_notebook WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM questions WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   });
@@ -1501,18 +1490,18 @@ export function getWeakAreas(userId: number): string[] {
   return rows.map((r) => `${r.subject} (${r.cnt} wrong)`);
 }
 
-// ============== Knowledge point mastery ==============
+// ============== Knowledge point mastery (user_notebook) ==============
 
 const KP_MASTERY_ALPHA = 0.2;
 
-export function updateKpMastery(
+export function updateNotebook(
   userId: number,
   subjectId: number,
   kpId: number,
   correct: boolean,
 ): { mastery: number; previous: number } {
   const existing = db.prepare(
-    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
+    "SELECT mastery FROM user_notebook WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
   ).get(userId, subjectId, kpId) as { mastery: number } | undefined;
 
   const previous = existing?.mastery ?? 0.5;
@@ -1520,9 +1509,11 @@ export function updateKpMastery(
   const mastery = previous + KP_MASTERY_ALPHA * (target - previous);
 
   db.prepare(
-    `INSERT INTO user_kp_mastery (user_id, subject_id, kp_id, mastery, last_updated)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(user_id, subject_id, kp_id) DO UPDATE SET mastery = excluded.mastery, last_updated = excluded.last_updated`,
+    `INSERT INTO user_notebook (user_id, subject_id, kp_id, mastery, total_wrong, last_updated)
+     VALUES (?, ?, ?, ?, 0, ?)
+     ON CONFLICT(user_id, subject_id, kp_id) DO UPDATE SET
+       mastery = excluded.mastery,
+       last_updated = excluded.last_updated`,
   ).run(userId, subjectId, kpId, mastery, new Date().toISOString());
 
   return { mastery: Math.round(mastery * 1000) / 1000, previous };
@@ -1539,7 +1530,7 @@ export function setWrongQuestionRootKp(
   ).run(kpId, questionId, userId);
 }
 
-export function upsertKpWeakness(
+export function notebookAddWrong(
   userId: number,
   subjectId: number,
   kpId: number,
@@ -1547,21 +1538,24 @@ export function upsertKpWeakness(
 ): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO user_kp_weakness (user_id, subject_id, kp_id, total_wrong, representative_question_id, last_wrong_time)
-     VALUES (?, ?, ?, 1, ?, ?)
+    `INSERT INTO user_notebook (user_id, subject_id, kp_id, mastery, total_wrong, representative_question_id, last_wrong_time, last_updated)
+     VALUES (?, ?, ?, 0.5, 1, ?, ?, ?)
      ON CONFLICT(user_id, subject_id, kp_id) DO UPDATE SET
        total_wrong = total_wrong + 1,
-       representative_question_id = COALESCE(user_kp_weakness.representative_question_id, excluded.representative_question_id),
-       last_wrong_time = excluded.last_wrong_time`,
-  ).run(userId, kpId, questionId, now);
+       representative_question_id = COALESCE(user_notebook.representative_question_id, excluded.representative_question_id),
+       last_wrong_time = excluded.last_wrong_time,
+       last_updated = excluded.last_updated`,
+  ).run(userId, subjectId, kpId, questionId, now, now);
 }
 
-export function clearKpWeaknessIfMastered(userId: number, subjectId: number, kpId: number): boolean {
+export function notebookClearWeakness(userId: number, subjectId: number, kpId: number): boolean {
   const row = db.prepare(
-    "SELECT mastery FROM user_kp_mastery WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
+    "SELECT mastery FROM user_notebook WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
   ).get(userId, subjectId, kpId) as { mastery: number } | undefined;
   if (row && row.mastery > 0.8) {
-    db.prepare("DELETE FROM user_kp_weakness WHERE user_id = ? AND subject_id = ? AND kp_id = ?").run(userId, subjectId, kpId);
+    db.prepare(
+      "UPDATE user_notebook SET total_wrong = 0, representative_question_id = NULL WHERE user_id = ? AND subject_id = ? AND kp_id = ?"
+    ).run(userId, subjectId, kpId);
     return true;
   }
   return false;
@@ -1575,12 +1569,10 @@ export interface UserKpMasteryRow {
 
 export function getUserKpMastery(userId: number): UserKpMasteryRow[] {
   return db.prepare(
-    `SELECT ukm.kp_id, ukm.mastery,
-            COALESCE(ukw.total_wrong, 0) as total_wrong
-     FROM user_kp_mastery ukm
-     LEFT JOIN user_kp_weakness ukw ON ukw.user_id = ukm.user_id AND ukw.kp_id = ukm.kp_id
-     WHERE ukm.user_id = ?
-     ORDER BY ukm.mastery ASC`,
+    `SELECT kp_id, mastery, total_wrong
+     FROM user_notebook
+     WHERE user_id = ?
+     ORDER BY mastery ASC`,
   ).all(userId) as UserKpMasteryRow[];
 }
 
@@ -1591,48 +1583,40 @@ export interface WeakKpRow {
   total_wrong: number;
 }
 
-export function getWeakKpsForUser(userId: number): WeakKpRow[] {
+export function getNotebookWeakKps(userId: number): WeakKpRow[] {
   return db.prepare(
-    `SELECT ukw.kp_id, kp.title as kp_name,
-            COALESCE(ukm.mastery, 0.5) as mastery,
-            ukw.total_wrong
-     FROM user_kp_weakness ukw
-     LEFT JOIN user_kp_mastery ukm ON ukm.user_id = ukw.user_id AND ukm.kp_id = ukw.kp_id
-     JOIN knowledge_points kp ON kp.id = ukw.kp_id
-     WHERE ukw.user_id = ?
-     ORDER BY ukm.mastery ASC NULLS FIRST
+    `SELECT un.kp_id, kp.title as kp_name, un.mastery, un.total_wrong
+     FROM user_notebook un
+     JOIN knowledge_points kp ON kp.id = un.kp_id
+     WHERE un.user_id = ? AND un.total_wrong > 0
+     ORDER BY un.mastery ASC
      LIMIT 20`,
   ).all(userId) as WeakKpRow[];
 }
 
-export function getKpMasteryStats(userId: number): {
+export function getNotebookStats(userId: number): {
   avg_mastery: number;
   kp_count: number;
   weakness_total: number;
   weakness_cleared: number;
 } {
-  const masteryRows = db.prepare(
-    "SELECT mastery FROM user_kp_mastery WHERE user_id = ?",
-  ).all(userId) as { mastery: number }[];
+  const rows = db.prepare(
+    "SELECT mastery, total_wrong FROM user_notebook WHERE user_id = ?",
+  ).all(userId) as { mastery: number; total_wrong: number }[];
 
-  const avg = masteryRows.length > 0
-    ? masteryRows.reduce((s, r) => s + r.mastery, 0) / masteryRows.length
+  const avg = rows.length > 0
+    ? rows.reduce((s, r) => s + r.mastery, 0) / rows.length
     : 0;
 
-  const weaknessTotal = (db.prepare(
-    "SELECT COUNT(*) as cnt FROM user_kp_weakness WHERE user_id = ?",
-  ).get(userId) as { cnt: number }).cnt;
-
-  // Cleared = KPs with mastery > 0.8 that are NOT in weakness table anymore
-  const masteredCount = (db.prepare(
-    "SELECT COUNT(*) as cnt FROM user_kp_mastery WHERE user_id = ? AND mastery > 0.8",
-  ).get(userId) as { cnt: number }).cnt;
+  const kp_count = rows.length;
+  const weakness_total = rows.filter(r => r.total_wrong > 0).length;
+  const masteredCount = rows.filter(r => r.mastery > 0.8).length;
 
   return {
     avg_mastery: Math.round(avg * 1000) / 1000,
-    kp_count: masteryRows.length,
-    weakness_total: weaknessTotal,
-    weakness_cleared: Math.max(0, masteredCount - weaknessTotal),
+    kp_count,
+    weakness_total,
+    weakness_cleared: Math.max(0, masteredCount - weakness_total),
   };
 }
 

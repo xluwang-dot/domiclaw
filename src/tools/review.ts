@@ -7,8 +7,8 @@ import {
   getWrongQuestionsBySubject,
   updateReviewResult,
   recordWrongQuestion,
-  getWeakKpsForUser,
-  getKpMasteryStats,
+  getNotebookWeakKps,
+  getNotebookStats,
   getKnowledgePointById,
   getQuestionsByKnowledgePoint,
   updateQuestionStats,
@@ -42,7 +42,7 @@ registerTool("get_due_reviews", {
     const due = getDueReviews(ctx.userId, subjectId);
 
     // --- Weak KP spot-check reviews ---
-    const weakKps = getWeakKpsForUser(ctx.userId);
+    const weakKps = getNotebookWeakKps(ctx.userId);
     const weakKpReviews: {
       kp_id: number;
       kp_name: string;
@@ -198,7 +198,7 @@ registerTool("get_study_stats", {
     }
 
     const stats = getStudyStats(ctx.userId, subjectId);
-    const masteryStats = getKpMasteryStats(ctx.userId);
+    const masteryStats = getNotebookStats(ctx.userId);
 
     const accuracy = stats.total_answers > 0
       ? Math.round((stats.correct_answers / stats.total_answers) * 100)
@@ -226,7 +226,7 @@ registerTool("get_study_stats", {
     );
 
     // Top 5 weakest KPs
-    const weakKps = getWeakKpsForUser(ctx.userId);
+    const weakKps = getNotebookWeakKps(ctx.userId);
     if (weakKps.length > 0) {
       const top5 = weakKps.slice(0, 5);
       sections.push("\nTop 5 Weakest Knowledge Points:");

@@ -12,10 +12,10 @@ import {
   recordQuizAnswer,
   recordWrongQuestion,
   searchKnowledgePoints,
-  updateKpMastery,
+  updateNotebook,
   setWrongQuestionRootKp,
-  upsertKpWeakness,
-  clearKpWeaknessIfMastered,
+  notebookAddWrong,
+  notebookClearWeakness,
   getAllDescendantKpIds,
   updateQuestionStats,
   getQuestionDifficulty,
@@ -184,13 +184,13 @@ registerTool("record_answer", {
       recordWrongQuestion(questionId, userId, subjectId);
       for (const kpId of kpIds) {
         setWrongQuestionRootKp(questionId, userId, kpId);
-        updateKpMastery(userId, subjectId, kpId, false);
-        upsertKpWeakness(userId, subjectId, kpId, questionId);
+        updateNotebook(userId, subjectId, kpId, false);
+        notebookAddWrong(userId, subjectId, kpId, questionId);
       }
     } else {
       for (const kpId of kpIds) {
-        updateKpMastery(userId, subjectId, kpId, true);
-        clearKpWeaknessIfMastered(userId, subjectId, kpId);
+        updateNotebook(userId, subjectId, kpId, true);
+        notebookClearWeakness(userId, subjectId, kpId);
       }
     }
 
