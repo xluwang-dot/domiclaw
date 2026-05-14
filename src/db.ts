@@ -120,7 +120,7 @@ export function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_qs_user ON quiz_sessions(user_id);
 
-    CREATE TABLE IF NOT EXISTS quiz_answers (
+    CREATE TABLE IF NOT EXISTS user_quizbook (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       quiz_session_id INTEGER NOT NULL,
       question_id INTEGER NOT NULL,
@@ -128,6 +128,9 @@ export function createSchema(database: Database.Database): void {
       student_answer TEXT,
       is_correct INTEGER DEFAULT 0,
       weak_kp_ids TEXT,
+      solution_steps TEXT,
+      duration_seconds INTEGER,
+      error_reason TEXT,
       answered_at TEXT NOT NULL,
       FOREIGN KEY (quiz_session_id) REFERENCES quiz_sessions(id),
       FOREIGN KEY (question_id) REFERENCES questions(id)
@@ -312,8 +315,6 @@ export function initDatabase(): void {
   for (const stmt of [
     `ALTER TABLE questions ADD COLUMN user_id INTEGER REFERENCES users(id)`,
     `ALTER TABLE questions ADD COLUMN knowledge_point_ids TEXT`,
-    `ALTER TABLE quiz_answers ADD COLUMN weak_kp_ids TEXT`,
-    `ALTER TABLE quiz_answers ADD COLUMN subject_id INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE wrong_questions ADD COLUMN root_kp_id INTEGER`,
     `ALTER TABLE wrong_questions ADD COLUMN subject_id INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE knowledge_points ADD COLUMN parent_id INTEGER REFERENCES knowledge_points(id)`,
@@ -337,6 +338,19 @@ export function initDatabase(): void {
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL"); } catch { /* ok */ }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_qc_user_pattern ON query_cache(user_id, pattern)"); } catch { /* ok */ }
   try { db.exec("DROP INDEX IF EXISTS idx_qc_pattern"); } catch { /* ok */ }
+
+  // Rename user_quizbook → user_quizbook + add new columns
+  try {
+    const hasOldAnswers = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_quizbook'").get();
+    if (hasOldAnswers) {
+      db.exec(`
+        ALTER TABLE user_quizbook RENAME TO user_quizbook;
+        ALTER TABLE user_quizbook ADD COLUMN solution_steps TEXT;
+        ALTER TABLE user_quizbook ADD COLUMN duration_seconds INTEGER;
+        ALTER TABLE user_quizbook ADD COLUMN error_reason TEXT;
+      `);
+    }
+  } catch { /* already migrated — skip */ }
 
   // Migrate tags->alias: extract en from {"en":"rational_number"} JSON
   try {
@@ -1068,7 +1082,7 @@ export function getUserProfile(userId: number): {
 } {
   const answers = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
-     FROM quiz_answers qa JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
+     FROM user_quizbook qa JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
      WHERE qs.user_id = ?`,
   ).get(userId) as { total: number; correct: number };
 
@@ -1110,7 +1124,7 @@ export function getUserProfile(userId: number): {
 export function deleteUserCascade(userId: number): void {
   const del = db.transaction(() => {
     db.prepare("DELETE FROM messages WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM quiz_answers WHERE quiz_session_id IN (SELECT id FROM quiz_sessions WHERE user_id = ?)").run(userId);
+    db.prepare("DELETE FROM user_quizbook WHERE quiz_session_id IN (SELECT id FROM quiz_sessions WHERE user_id = ?)").run(userId);
     db.prepare("DELETE FROM quiz_sessions WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM wrong_questions WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM study_plans WHERE user_id = ?").run(userId);
@@ -1138,7 +1152,7 @@ export function recordQuizAnswer(
   weakKpIds?: number[],
 ): void {
   db.prepare(
-    `INSERT INTO quiz_answers (quiz_session_id, subject_id, question_id, student_answer, is_correct, weak_kp_ids, answered_at)
+    `INSERT INTO user_quizbook (quiz_session_id, subject_id, question_id, student_answer, is_correct, weak_kp_ids, answered_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(sessionId, subjectId, questionId, studentAnswer, isCorrect ? 1 : 0,
     weakKpIds?.length ? JSON.stringify(weakKpIds) : null,
@@ -1151,13 +1165,13 @@ export function updateQuizAnswerWeakKps(
   kpIds: number[],
 ): void {
   db.prepare(
-    `UPDATE quiz_answers SET weak_kp_ids = ? WHERE quiz_session_id = ? AND question_id = ?`,
+    `UPDATE user_quizbook SET weak_kp_ids = ? WHERE quiz_session_id = ? AND question_id = ?`,
   ).run(JSON.stringify(kpIds), sessionId, questionId);
 }
 
 export function finishQuizSession(sessionId: number): { total: number; correct: number } {
   const stats = db.prepare(
-    "SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct FROM quiz_answers WHERE quiz_session_id = ?",
+    "SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct FROM user_quizbook WHERE quiz_session_id = ?",
   ).get(sessionId) as { total: number; correct: number };
   db.prepare(
     "UPDATE quiz_sessions SET finished_at = ?, total_questions = ?, correct_count = ? WHERE id = ?",
@@ -1179,7 +1193,7 @@ export function getQuizSessionAnswers(sessionId: number): {
   question_id: number; student_answer: string; is_correct: number;
 }[] {
   return db.prepare(
-    "SELECT question_id, student_answer, is_correct FROM quiz_answers WHERE quiz_session_id = ?",
+    "SELECT question_id, student_answer, is_correct FROM user_quizbook WHERE quiz_session_id = ?",
   ).all(sessionId) as { question_id: number; student_answer: string; is_correct: number }[];
 }
 
@@ -1328,7 +1342,7 @@ export function getStudyStats(userId: number, subjectId?: number): {
 
   const answerStats = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
-     FROM quiz_answers qa
+     FROM user_quizbook qa
      JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
      WHERE qs.user_id = ?` +
     (subjectId ? " AND qs.subject_id = ?" : ""),

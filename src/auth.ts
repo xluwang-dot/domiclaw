@@ -116,7 +116,7 @@ export function getAllUsers(): (UserRow & {
     LEFT JOIN (
       SELECT qs2.user_id, COUNT(*) as total_answers,
         COALESCE(SUM(qa2.is_correct), 0) as correct_answers
-      FROM quiz_answers qa2
+      FROM user_quizbook qa2
       JOIN quiz_sessions qs2 ON qa2.quiz_session_id = qs2.id
       GROUP BY qs2.user_id
     ) qa ON u.id = qa.user_id
@@ -155,7 +155,7 @@ export function searchUsers(search?: string, page = 1, limit = 20): {
     LEFT JOIN (SELECT user_id, COUNT(*) as quiz_count FROM quiz_sessions GROUP BY user_id) qs ON u.id = qs.user_id
     LEFT JOIN (
       SELECT qs2.user_id, COUNT(*) as total_answers, COALESCE(SUM(qa2.is_correct), 0) as correct_answers
-      FROM quiz_answers qa2 JOIN quiz_sessions qs2 ON qa2.quiz_session_id = qs2.id GROUP BY qs2.user_id
+      FROM user_quizbook qa2 JOIN quiz_sessions qs2 ON qa2.quiz_session_id = qs2.id GROUP BY qs2.user_id
     ) qa ON u.id = qa.user_id
     LEFT JOIN (
       SELECT user_id, COUNT(*) as active_wrong FROM wrong_questions WHERE mastered = 0 GROUP BY user_id
