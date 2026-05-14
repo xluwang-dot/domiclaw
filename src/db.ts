@@ -46,6 +46,8 @@ export function createSchema(database: Database.Database): void {
       title TEXT NOT NULL,
       alias TEXT,
       content TEXT,
+      prerequisite_ids TEXT,
+      related_ids TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(parent_id, title)
@@ -331,6 +333,8 @@ export function initDatabase(): void {
     `ALTER TABLE query_cache ADD COLUMN user_id INTEGER`,
     `ALTER TABLE questions ADD COLUMN times_answered INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE questions ADD COLUMN times_correct INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE knowledge_points ADD COLUMN prerequisite_ids TEXT`,
+    `ALTER TABLE knowledge_points ADD COLUMN related_ids TEXT`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -504,22 +508,25 @@ export interface KnowledgePointRow {
   level_type: string; sort_order: number;
   title: string; alias: string | null; content: string | null;
   created_at: string; updated_at: string;
+  prerequisite_ids: string | null; related_ids: string | null;
 }
 
 export function addKnowledgePoint(
   subjectId: number, title: string, content?: string | null,
   parentId?: number | null, levelType?: string, sortOrder?: number,
   alias?: string | null,
+  prerequisiteIds?: string | null,
+  relatedIds?: string | null,
 ): number {
   const now = new Date().toISOString();
   const result = db.prepare(
-    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, alias, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(subjectId, parentId || null, title, content || null, levelType || "knowledge_point", sortOrder || 0, alias || null, now, now);
+    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, alias, prerequisite_ids, related_ids, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(subjectId, parentId || null, title, content || null, levelType || "knowledge_point", sortOrder || 0, alias || null, prerequisiteIds || null, relatedIds || null, now, now);
   return result.lastInsertRowid as number;
 }
 
-const KP_SELECT = `id, subject_id, parent_id, level_type, sort_order, title, alias, content, created_at, updated_at`;
+const KP_SELECT = `id, subject_id, parent_id, level_type, sort_order, title, alias, content, prerequisite_ids, related_ids, created_at, updated_at`;
 
 export function searchKnowledgePoints(query: string, subjectId?: number): KnowledgePointRow[] {
   const like = `%${query}%`;
@@ -572,6 +579,26 @@ export function updateKnowledgePoint(
     parentId !== undefined ? (parentId ?? null) : null,
     levelType || null, sortOrder ?? null, now, id,
   );
+  return result.changes > 0;
+}
+
+/**
+ * 更新知识点的横向关联关系
+ * @param id 知识点ID
+ * @param prerequisiteIds 前置知识点ID数组（JSON字符串），传null清空
+ * @param relatedIds 关联知识点ID数组（JSON字符串），传null清空
+ */
+export function updateKnowledgePointRelations(
+  id: number,
+  prerequisiteIds: string | null,
+  relatedIds: string | null,
+): boolean {
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    `UPDATE knowledge_points
+     SET prerequisite_ids = ?, related_ids = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(prerequisiteIds, relatedIds, now, id);
   return result.changes > 0;
 }
 

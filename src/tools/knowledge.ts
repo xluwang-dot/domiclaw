@@ -21,6 +21,8 @@ registerTool("add_knowledge_point", {
           title: { type: "string", description: "知识点标题" },
           content: { type: "string", description: "详细内容/解释" },
           alias: { type: "string", description: "可选的英文别名" },
+          prerequisite_ids: { type: "string", description: "可选：前置知识点ID数组（JSON格式，如\"[1,2,3]\"），适用于自然科学" },
+          related_ids: { type: "string", description: "可选：关联知识点ID数组（JSON格式，如\"[4,5,6]\"），适用于人文科学" },
         },
         required: ["subject", "title"],
       },
@@ -31,6 +33,8 @@ registerTool("add_knowledge_point", {
     const title = args.title as string;
     const content = (args.content as string) || "";
     const alias = args.alias as string | undefined;
+    const prerequisiteIds = args.prerequisite_ids as string | undefined;
+    const relatedIds = args.related_ids as string | undefined;
 
     const subject = getSubjectByName(subjectName);
     if (!subject) {
@@ -38,8 +42,11 @@ registerTool("add_knowledge_point", {
       return `Subject "${subjectName}" not found. Available subjects: ${subjects}`;
     }
 
-    const id = addKnowledgePoint(subject.id, title, content, undefined, undefined, undefined);
-    return `Knowledge point added (ID: ${id}). Subject: ${subjectName}, Title: ${title}`;
+    const id = addKnowledgePoint(subject.id, title, content, undefined, undefined, undefined, alias, prerequisiteIds, relatedIds);
+    let msg = `Knowledge point added (ID: ${id}). Subject: ${subjectName}, Title: ${title}`;
+    if (prerequisiteIds) msg += `\nPrerequisite IDs: ${prerequisiteIds}`;
+    if (relatedIds) msg += `\nRelated IDs: ${relatedIds}`;
+    return msg;
   },
 });
 

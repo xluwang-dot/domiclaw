@@ -15,6 +15,7 @@ import {
   updateQuestionStats,
   getQuestionDifficulty,
   recordQuizAnswer,
+  updateKnowledgePointRelations,
 } from "../src/db.js";
 import { initAuthDb } from "../src/auth.js";
 
@@ -235,6 +236,61 @@ describe("difficulty tracking — getQuestionDifficulty", () => {
     const diff = getQuestionDifficulty(99999);
     expect(diff).toBeDefined();
     expect(typeof diff).toBe("number");
+  });
+});
+
+describe("kp relations — prerequisite_ids / related_ids", () => {
+  it("should have prerequisite_ids and related_ids columns with NULL default", () => {
+    const subjId = addSubject("TestKPRel", null);
+    const kpId = addKnowledgePoint(subjId, "Test KP", "test content");
+
+    const row = testDb.prepare(
+      "SELECT prerequisite_ids, related_ids FROM knowledge_points WHERE id = ?"
+    ).get(kpId) as { prerequisite_ids: string | null; related_ids: string | null };
+
+    expect(row.prerequisite_ids).toBeNull();
+    expect(row.related_ids).toBeNull();
+  });
+
+  it("should store and retrieve prerequisite_ids", () => {
+    const subjId = addSubject("TestKPRel2", null);
+    const kpId = addKnowledgePoint(subjId, "KP with prereqs", "content",
+      undefined, undefined, undefined, undefined, "[1, 2, 3]", undefined);
+
+    const kp = getKnowledgePointById(kpId);
+    expect(kp).toBeDefined();
+    expect(kp!.prerequisite_ids).toBe("[1, 2, 3]");
+  });
+
+  it("should store and retrieve related_ids", () => {
+    const subjId = addSubject("TestKPRel3", null);
+    const kpId = addKnowledgePoint(subjId, "KP with related", "content",
+      undefined, undefined, undefined, undefined, undefined, "[5, 8, 13]");
+
+    const kp = getKnowledgePointById(kpId);
+    expect(kp).toBeDefined();
+    expect(kp!.related_ids).toBe("[5, 8, 13]");
+  });
+
+  it("should update relations via updateKnowledgePointRelations", () => {
+    const subjId = addSubject("TestKPRel4", null);
+    const kpId = addKnowledgePoint(subjId, "KP to update", "content");
+
+    updateKnowledgePointRelations(kpId, "[10, 20]", "[30, 40]");
+    const kp = getKnowledgePointById(kpId);
+    expect(kp!.prerequisite_ids).toBe("[10, 20]");
+    expect(kp!.related_ids).toBe("[30, 40]");
+  });
+
+  it("should clear relations when set to null", () => {
+    const subjId = addSubject("TestKPRel5", null);
+    const kpId = addKnowledgePoint(subjId, "KP to clear", "content",
+      undefined, undefined, undefined, undefined, "[1, 2]", "[3, 4]");
+
+    updateKnowledgePointRelations(kpId, null, null);
+    const kp = getKnowledgePointById(kpId);
+    expect(kp!.prerequisite_ids).toBeNull();
+    expect(kp!.related_ids).toBeNull();
   });
 });
 });
