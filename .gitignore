@@ -26,8 +26,9 @@ web/images/*
 
 # Graphify cache
 src/graphify-out/*
-graphify/*
-.gra
+graphify-out/*
+.graphify_cached.json
+.graphify_uncached.txt
 
 # Temporary documents
 *.TXT
