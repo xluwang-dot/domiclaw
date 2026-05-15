@@ -48,6 +48,7 @@ export function createSchema(database: Database.Database): void {
       content TEXT,
       prerequisite_ids TEXT,
       related_ids TEXT,
+      exercise_point_names TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(parent_id, title)
@@ -58,25 +59,6 @@ export function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_kp_level_type ON knowledge_points(level_type);
     CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON knowledge_points(subject_id, level_type);
     CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON knowledge_points(parent_id, sort_order);
-
-    CREATE TABLE IF NOT EXISTS exercise_points (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_id INTEGER NOT NULL REFERENCES subjects(id),
-      name TEXT NOT NULL,
-      UNIQUE(subject_id, name)
-    );
-
-    CREATE TABLE IF NOT EXISTS exercise_point_knowledge_points (
-      exercise_point_id INTEGER NOT NULL REFERENCES exercise_points(id) ON DELETE CASCADE,
-      knowledge_point_id INTEGER NOT NULL REFERENCES knowledge_points(id) ON DELETE CASCADE,
-      PRIMARY KEY (exercise_point_id, knowledge_point_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS exercise_point_questions (
-      exercise_point_id INTEGER NOT NULL REFERENCES exercise_points(id) ON DELETE CASCADE,
-      question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-      PRIMARY KEY (exercise_point_id, question_id)
-    );
 
     CREATE TABLE IF NOT EXISTS exam_papers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -374,6 +356,40 @@ export function initDatabase(): void {
     }
   } catch { /* already migrated — skip */ }
 
+  // Migrate exercise_points → knowledge_points.exercise_point_names
+  try {
+    const hasOldEp = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='exercise_points'").get();
+    if (hasOldEp) {
+      // Step 1: add column if not exists
+      try { db.exec("ALTER TABLE knowledge_points ADD COLUMN exercise_point_names TEXT"); } catch { /* ok */ }
+
+      // Step 2: migrate existing exercise point names per KP
+      const rows = db.prepare(`
+        SELECT epk.knowledge_point_id, ep.name
+        FROM exercise_point_knowledge_points epk
+        JOIN exercise_points ep ON ep.id = epk.exercise_point_id
+      `).all() as { knowledge_point_id: number; name: string }[];
+
+      const kpMap = new Map<number, string[]>();
+      for (const r of rows) {
+        if (!kpMap.has(r.knowledge_point_id)) kpMap.set(r.knowledge_point_id, []);
+        kpMap.get(r.knowledge_point_id)!.push(r.name);
+      }
+
+      const update = db.prepare(
+        "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+      );
+      for (const [kpId, names] of kpMap) {
+        update.run(JSON.stringify(names), kpId);
+      }
+
+      // Step 3: drop old tables
+      db.exec("DROP TABLE IF EXISTS exercise_point_questions");
+      db.exec("DROP TABLE IF EXISTS exercise_point_knowledge_points");
+      db.exec("DROP TABLE IF EXISTS exercise_points");
+    }
+  } catch { /* already migrated — skip */ }
+
   // Migrate tags->alias: extract en from {"en":"rational_number"} JSON
   try {
     const rows = db.prepare("SELECT id, tags FROM knowledge_points WHERE tags IS NOT NULL AND alias IS NULL").all() as { id: number; tags: string }[];
@@ -535,6 +551,7 @@ export interface KnowledgePointRow {
   title: string; alias: string | null; content: string | null;
   created_at: string; updated_at: string;
   prerequisite_ids: string | null; related_ids: string | null;
+  exercise_point_names: string | null;
 }
 
 export function addKnowledgePoint(
@@ -552,7 +569,7 @@ export function addKnowledgePoint(
   return result.lastInsertRowid as number;
 }
 
-const KP_SELECT = `id, subject_id, parent_id, level_type, sort_order, title, alias, content, prerequisite_ids, related_ids, created_at, updated_at`;
+const KP_SELECT = `id, subject_id, parent_id, level_type, sort_order, title, alias, content, prerequisite_ids, related_ids, exercise_point_names, created_at, updated_at`;
 
 export function searchKnowledgePoints(query: string, subjectId?: number): KnowledgePointRow[] {
   const like = `%${query}%`;
@@ -590,6 +607,7 @@ export function updateKnowledgePoint(
   id: number, title?: string, content?: string | null,
   alias?: string | null, parentId?: number | null,
   levelType?: string, sortOrder?: number,
+  exercisePointNames?: string | null,
 ): boolean {
   const now = new Date().toISOString();
   const result = db.prepare(
@@ -597,13 +615,16 @@ export function updateKnowledgePoint(
      SET title = COALESCE(?, title), content = COALESCE(?, content),
          alias = COALESCE(?, alias), parent_id = COALESCE(?, parent_id),
          level_type = COALESCE(?, level_type), sort_order = COALESCE(?, sort_order),
+         exercise_point_names = COALESCE(?, exercise_point_names),
          updated_at = ?
      WHERE id = ?`,
   ).run(
     title || null, content !== undefined ? content : null,
     alias !== undefined ? alias : null,
     parentId !== undefined ? (parentId ?? null) : null,
-    levelType || null, sortOrder ?? null, now, id,
+    levelType || null, sortOrder ?? null,
+    exercisePointNames !== undefined ? exercisePointNames : null,
+    now, id,
   );
   return result.changes > 0;
 }
@@ -631,76 +652,6 @@ export function updateKnowledgePointRelations(
 export function deleteKnowledgePoint(id: number): boolean {
   const result = db.prepare("DELETE FROM knowledge_points WHERE id = ?").run(id);
   return result.changes > 0;
-}
-
-// ============== Exercise point queries ==============
-
-export function addExercisePoint(subjectId: number, name: string): number {
-  const result = db.prepare(
-    "INSERT OR IGNORE INTO exercise_points (subject_id, name) VALUES (?, ?)",
-  ).run(subjectId, name);
-  if (result.changes > 0) return result.lastInsertRowid as number;
-  return (db.prepare("SELECT id FROM exercise_points WHERE subject_id = ? AND name = ?").get(subjectId, name) as { id: number }).id;
-}
-
-export function getExercisePointById(id: number): { id: number; subject_id: number; name: string } | undefined {
-  return db.prepare("SELECT id, subject_id, name FROM exercise_points WHERE id = ?").get(id) as any;
-}
-
-export function getExercisePointByName(subjectId: number, name: string): { id: number; subject_id: number; name: string } | undefined {
-  return db.prepare("SELECT id, subject_id, name FROM exercise_points WHERE subject_id = ? AND name = ?").get(subjectId, name) as any;
-}
-
-export function linkExercisePointKnowledgePoint(exercisePointId: number, knowledgePointId: number): void {
-  db.prepare("INSERT OR IGNORE INTO exercise_point_knowledge_points (exercise_point_id, knowledge_point_id) VALUES (?, ?)").run(exercisePointId, knowledgePointId);
-}
-
-export function linkExercisePointQuestion(exercisePointId: number, questionId: number): void {
-  db.prepare("INSERT OR IGNORE INTO exercise_point_questions (exercise_point_id, question_id) VALUES (?, ?)").run(exercisePointId, questionId);
-}
-
-export interface ExercisePointRow {
-  id: number; name: string; subject_id: number;
-  kp_count: number; q_count: number;
-}
-
-export function listExercisePoints(): ExercisePointRow[] {
-  return db.prepare(`
-    SELECT ep.id, ep.name, ep.subject_id,
-      COUNT(DISTINCT epk.knowledge_point_id) as kp_count,
-      COUNT(DISTINCT epq.question_id) as q_count
-    FROM exercise_points ep
-    LEFT JOIN exercise_point_knowledge_points epk ON ep.id = epk.exercise_point_id
-    LEFT JOIN exercise_point_questions epq ON ep.id = epq.exercise_point_id
-    GROUP BY ep.id
-    ORDER BY ep.id
-  `).all() as ExercisePointRow[];
-}
-
-export function updateExercisePoint(id: number, name: string): boolean {
-  const result = db.prepare("UPDATE exercise_points SET name = ? WHERE id = ?").run(name, id);
-  return result.changes > 0;
-}
-
-export function deleteExercisePoint(id: number): boolean {
-  db.prepare("DELETE FROM exercise_point_knowledge_points WHERE exercise_point_id = ?").run(id);
-  db.prepare("DELETE FROM exercise_point_questions WHERE exercise_point_id = ?").run(id);
-  const result = db.prepare("DELETE FROM exercise_points WHERE id = ?").run(id);
-  return result.changes > 0;
-}
-
-export function setExercisePointKps(exercisePointId: number, kpIds: number[]): void {
-  db.prepare("DELETE FROM exercise_point_knowledge_points WHERE exercise_point_id = ?").run(exercisePointId);
-  const stmt = db.prepare("INSERT OR IGNORE INTO exercise_point_knowledge_points (exercise_point_id, knowledge_point_id) VALUES (?, ?)");
-  for (const kpId of kpIds) {
-    stmt.run(exercisePointId, kpId);
-  }
-}
-
-export function getExercisePointKpIds(exercisePointId: number): number[] {
-  return (db.prepare(
-    "SELECT knowledge_point_id FROM exercise_point_knowledge_points WHERE exercise_point_id = ?"
-  ).all(exercisePointId) as { knowledge_point_id: number }[]).map(r => r.knowledge_point_id);
 }
 
 // ============== Exam paper queries ==============

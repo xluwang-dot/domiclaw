@@ -320,6 +320,11 @@ tr:hover{background:rgba(0,0,0,0.03)}
       <label class="dialog-label">知识点内容</label>
       <textarea v-model="kpForm.content" placeholder="知识点内容" style="width:100%;min-height:100px"></textarea>
     </div>
+    <div class="dialog-field" v-if="editingKp">
+      <label class="dialog-label">考点（分号分隔）</label>
+      <input v-model="kpForm.exercise_point_names_input" placeholder="例如：概念辨析；计算应用" style="width:100%" />
+      <div style="font-size:11px;color:#888;margin-top:2px">多个考点用分号分隔，保存后自动转换为 JSON 格式</div>
+    </div>
   </template>
   <!-- 底部按钮 -->
   <div class="dialog-actions" style="justify-content:space-between;margin-top:20px;padding-top:16px;border-top:1px solid #eee">
@@ -603,8 +608,8 @@ async function removeSubject(id){if(!confirm('Delete?'))return;await apiDelete('
 // KPs
 async function fetchKPs(){const sid=kpSubjectId.value;const url=sid?'/api/admin/knowledge-points?subject_id='+sid:'/api/admin/knowledge-points';kps.value=await apiGet(url)||[];for(const k of kps.value){if(k.level_type==='root')expandedNodes[k.id]=true}}
 async function loadAllKps(){allKps.value=await apiGet('/api/admin/knowledge-points')||[]}
-async function saveKp(){const f=kpForm.value;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content||null,level_type:f.level_type,sort_order:Number(f.sort_order),alias:f.alias||null,parent_id:f.parent_id||null};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
-function editKp(k){editingKp.value=k;kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content||'',level_type:k.level_type||'knowledge_point',sort_order:k.sort_order||0,alias:k.alias||'',parent_id:k.parent_id||null};showKpDialog.value=true}
+async function saveKp(){const f=kpForm.value;const eps=f.exercise_point_names_input?JSON.stringify(f.exercise_point_names_input.split(/[；;]\s*/).filter(Boolean)):null;const body={subject_id:Number(f.subject_id),title:f.title,content:f.content||null,level_type:f.level_type,sort_order:Number(f.sort_order),alias:f.alias||null,parent_id:f.parent_id||null,exercise_point_names:eps};if(editingKp.value){await apiPut('/api/admin/knowledge-points/'+editingKp.value.id,body)}else{await apiPost('/api/admin/knowledge-points',body)};showKpDialog.value=false;fetchKPs();loadAllKps()}
+function editKp(k){editingKp.value=k;const ep=k.exercise_point_names?JSON.parse(k.exercise_point_names).join(', '):'';kpForm.value={subject_id:k.subject_id||'',title:k.title,content:k.content||'',level_type:k.level_type||'knowledge_point',sort_order:k.sort_order||0,alias:k.alias||'',parent_id:k.parent_id||null,exercise_point_names_input:ep};showKpDialog.value=true}
 function addChildKp(parent){editingKp.value=null;kpForm.value={subject_id:parent.subject_id||'',title:'',content:'',level_type:getDefaultChildLevel(parent.level_type),sort_order:0,alias:'',parent_id:parent.id};showKpDialog.value=true}
 function getDefaultChildLevel(parentLevel){
 const map={root:['module','domain','subject_area','chapter','unit','section','concept','lesson','knowledge_point'],module:['chapter','unit','section','concept','lesson','knowledge_point'],domain:['chapter','unit','section','concept','lesson','knowledge_point'],subject_area:['chapter','unit','section','concept','lesson','knowledge_point'],chapter:['section','concept','lesson','knowledge_point'],unit:['section','concept','lesson','knowledge_point'],section:['knowledge_point'],concept:['knowledge_point'],lesson:['knowledge_point'],knowledge_point:['knowledge_point']};
