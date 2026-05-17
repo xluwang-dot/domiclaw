@@ -118,7 +118,7 @@ export function pushSse(userId: number, event: string, data: unknown): void {
 
 interface GraphNode {
   id: string;
-  type: "subject" | "knowledge_point" | "exam_paper" | "quiz_session";
+  type: "subject" | "knowledge_point" | "quiz_session";
   label: string;
   x: number;
   y: number;
@@ -896,7 +896,6 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       (body.difficulty as number) || 1,
       body.options as string | undefined,
       body.knowledge_point_id as number | undefined,
-      body.exam_paper_id as number | undefined,
     );
     res.json({ id });
   });
@@ -941,7 +940,6 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       difficulty: q.difficulty as number | undefined,
       options: q.options as string | undefined,
       knowledge_point_id: q.knowledge_point_id as number | undefined,
-      exam_paper_id: q.exam_paper_id as number | undefined,
     })));
     res.json({ imported });
   });
@@ -1160,7 +1158,6 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   app.post("/api/admin/questions", requireAuth, requireAdmin, (req: Request, res: Response) => {
     const q = req.body as Record<string, unknown>;
     const id = addQuestion(
-      (q.exam_paper_id as number) || null,
       (q.knowledge_point_id as number) || null,
       q.question_text as string,
       q.answer as string,
@@ -1307,7 +1304,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           const y = kps ? kps.length : 0;
           const difficulty = Math.round(x * y) || 1;
 
-          addQuestion(null, knowledgePointId2, questionText, item.answer as string, questionType,
+          addQuestion(knowledgePointId2, questionText, item.answer as string, questionType,
             explanation, difficulty, options, knowledgePointIds);
           const qId = getDatabase().prepare(
             "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
@@ -1346,7 +1343,6 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         difficulty: q.difficulty as number | undefined,
         options: q.options as string | undefined,
         knowledge_point_id: q.knowledge_point_id as number | undefined,
-        exam_paper_id: q.exam_paper_id as number | undefined,
         status: q.status as string | undefined,
       }))));
     }
@@ -1419,7 +1415,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         const y = kps ? kps.length : 0;
         const difficulty = Math.round(x * y) || 1;
 
-        addQuestion(null, knowledgePointId, questionText, item.answer as string, questionType,
+        addQuestion(knowledgePointId, questionText, item.answer as string, questionType,
           explanation, difficulty, optionsRaw, knowledgePointIds);
         const questionId = getDatabase().prepare(
           "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"

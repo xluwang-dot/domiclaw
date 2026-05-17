@@ -133,7 +133,7 @@ registerTool("create_quiz", {
     }
 
     if (questions.length === 0) {
-      return `No questions found for "${subjectName}". Add some with add_exam_paper or add_knowledge_point first.`;
+      return `No questions found for "${subjectName}". Add some with add_knowledge_point first.`;
     }
 
     // Select random questions

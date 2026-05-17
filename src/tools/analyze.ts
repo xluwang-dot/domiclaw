@@ -131,7 +131,7 @@ registerTool("analyze_wrong_answer", {
         return `Analysis: ${parsed.reason || "No weak KP identified"} (narrowed from ${relatedKpIds.length} candidates — all selected as weak)`;
       }
 
-      // Persist to quiz_answers if session_id and question_id provided
+      // Persist to user_quizbook if session_id and question_id provided
       if (sessionId && questionId) {
         try {
           updateQuizAnswerWeakKps(sessionId, questionId, weakKpIds);

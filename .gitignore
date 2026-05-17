@@ -14,6 +14,7 @@ store/*
 
 # Task tracking (local only)
 tasker/
+docs/
 
 # Project instructions (local only)
 CLAUDE.md
@@ -33,3 +34,4 @@ graphify-out/*
 # Temporary documents
 *.TXT
 *.txt
+AGENTS.md

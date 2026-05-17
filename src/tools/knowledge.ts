@@ -1,6 +1,5 @@
 import { registerTool } from "./index.js";
 import {
-  addExamPaper,
   addKnowledgePoint,
   addQuestion,
   getAllSubjects,
@@ -89,78 +88,6 @@ registerTool("search_knowledge", {
   },
 });
 
-registerTool("add_exam_paper", {
-  definition: {
-    type: "function",
-    function: {
-      name: "add_exam_paper",
-      description: "存储包含问题的试卷，问题会被保存并可用于测验",
-      parameters: {
-        type: "object",
-        properties: {
-          subject: { type: "string", description: "科目名称" },
-          title: { type: "string", description: "试卷标题（例如：'2024期中考试'）" },
-          exam_date: { type: "string", description: "可选考试日期（ISO格式）" },
-          total_score: { type: "number", description: "总分（默认100）" },
-          duration_minutes: { type: "number", description: "时长（分钟，默认60）" },
-          questions: {
-            type: "array",
-            description: "问题对象数组",
-            items: {
-              type: "object",
-              properties: {
-                text: { type: "string", description: "问题文本" },
-                answer: { type: "string", description: "正确答案" },
-                explanation: { type: "string", description: "可选解释" },
-                type: { type: "string", description: "问题类型：multiple_choice, short_answer, 或 essay" },
-                options: { type: "string", description: "对于选择题：JSON格式如{\"A\":\"...\",\"B\":\"...\"}" },
-                difficulty: { type: "number", description: "难度1-5（默认1）" },
-                knowledge_point: { type: "string", description: "可选知识点标题用于关联" },
-              },
-              required: ["text", "answer"],
-            },
-          },
-        },
-        required: ["subject", "title", "questions"],
-      },
-    },
-  },
-  async execute(args) {
-    const subjectName = args.subject as string;
-    const title = args.title as string;
-    const examDate = args.exam_date as string | undefined;
-    const totalScore = args.total_score as number | undefined;
-    const durationMinutes = args.duration_minutes as number | undefined;
-    const questions = args.questions as Array<{
-      text: string;
-      answer: string;
-      explanation?: string;
-      type?: string;
-      options?: string;
-      difficulty?: number;
-      knowledge_point?: string;
-    }>;
-
-    const subject = getSubjectByName(subjectName);
-    if (!subject) return `Subject "${subjectName}" not found.`;
-
-    const paperId = addExamPaper(subject.id, title, examDate, totalScore, durationMinutes);
-
-    let addedCount = 0;
-    for (const q of questions) {
-      let kpId: number | null = null;
-      if (q.knowledge_point) {
-        const results = searchKnowledgePoints(q.knowledge_point, subject.id);
-        if (results.length > 0) kpId = results[0].id;
-      }
-      addQuestion(paperId, kpId, q.text, q.answer, q.type || "short_answer", q.explanation, q.difficulty, q.options);
-      addedCount++;
-    }
-
-    return `Exam paper "${title}" added (ID: ${paperId}). Subject: ${subjectName}, Questions: ${addedCount}`;
-  },
-});
-
 registerTool("import_questions", {
   definition: {
     type: "function",
@@ -210,7 +137,7 @@ registerTool("import_questions", {
         const results = searchKnowledgePoints(q.knowledge_point, subject.id);
         if (results.length > 0) kpId = results[0].id;
       }
-      addQuestion(null, kpId, q.text, q.answer, q.type || "short_answer", q.explanation, q.difficulty, q.options);
+      addQuestion(kpId, q.text, q.answer, q.type || "short_answer", q.explanation, q.difficulty, q.options);
       imported++;
     }
 

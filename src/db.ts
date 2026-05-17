@@ -60,20 +60,8 @@ export function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON knowledge_points(subject_id, level_type);
     CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON knowledge_points(parent_id, sort_order);
 
-    CREATE TABLE IF NOT EXISTS exam_papers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_id INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      total_score INTEGER DEFAULT 100,
-      duration_minutes INTEGER DEFAULT 60,
-      exam_date TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (subject_id) REFERENCES subjects(id)
-    );
-
     CREATE TABLE IF NOT EXISTS questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      exam_paper_id INTEGER,
       knowledge_point_id INTEGER,
       knowledge_point_ids TEXT,
       question_text TEXT NOT NULL,
@@ -86,7 +74,6 @@ export function createSchema(database: Database.Database): void {
       options TEXT,
       status TEXT NOT NULL DEFAULT 'published',
       created_at TEXT NOT NULL,
-      FOREIGN KEY (exam_paper_id) REFERENCES exam_papers(id),
       FOREIGN KEY (knowledge_point_id) REFERENCES knowledge_points(id)
     );
 
@@ -342,6 +329,9 @@ export function initDatabase(): void {
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL"); } catch { /* ok */ }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_qc_user_pattern ON query_cache(user_id, pattern)"); } catch { /* ok */ }
   try { db.exec("DROP INDEX IF EXISTS idx_qc_pattern"); } catch { /* ok */ }
+
+  // Drop exam_papers table (removed in T056)
+  try { db.exec("DROP TABLE IF EXISTS exam_papers"); } catch { /* ok */ }
 
   // Rename user_quizbook → user_quizbook + add new columns
   try {
@@ -656,30 +646,19 @@ export function deleteKnowledgePoint(id: number): boolean {
 
 // ============== Exam paper queries ==============
 
-export function addExamPaper(
-  subjectId: number, title: string, examDate?: string,
-  totalScore?: number, durationMinutes?: number,
-): number {
-  const result = db.prepare(
-    `INSERT INTO exam_papers (subject_id, title, total_score, duration_minutes, exam_date, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(subjectId, title, totalScore || 100, durationMinutes || 60, examDate || null, new Date().toISOString());
-  return result.lastInsertRowid as number;
-}
-
 // ============== Question queries ==============
 
 export function addQuestion(
-  examPaperId: number | null, knowledgePointId: number | null,
+  knowledgePointId: number | null,
   questionText: string, answer: string, questionType: string,
   explanation?: string, difficulty?: number, options?: string,
   knowledgePointIds?: string | null,
 ): number {
   const result = db.prepare(
-    `INSERT INTO questions (exam_paper_id, knowledge_point_id, knowledge_point_ids,
+    `INSERT INTO questions (knowledge_point_id, knowledge_point_ids,
        question_text, answer, explanation, difficulty, question_type, options, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(examPaperId, knowledgePointId, knowledgePointIds || null, questionText, answer,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(knowledgePointId, knowledgePointIds || null, questionText, answer,
     explanation || null, difficulty || 1, questionType, options || null, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
@@ -695,7 +674,6 @@ export interface QuestionRow {
   knowledge_point_id: number | null;
   knowledge_point_ids: string | null;
   status?: string;
-  exam_paper_id?: number | null;
 }
 
 export function getQuestionsBySubject(subjectId: number, limit = 50): QuestionRow[] {
@@ -703,11 +681,10 @@ export function getQuestionsBySubject(subjectId: number, limit = 50): QuestionRo
     `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
             q.options, q.knowledge_point_id, q.knowledge_point_ids
      FROM questions q
-     LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
-     LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-     WHERE (ep.subject_id = ? OR kp.subject_id = ?) AND q.status = 'published'
+     JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
+     WHERE kp.subject_id = ? AND q.status = 'published'
      LIMIT 500`,
-  ).all(subjectId, subjectId) as QuestionRow[];
+  ).all(subjectId) as QuestionRow[];
 }
 
 export function getQuestionsByKnowledgePoint(knowledgePointId: number): QuestionRow[] {
@@ -793,7 +770,7 @@ export function updateQuestion(id: number, fields: Record<string, unknown>): boo
   const vals: unknown[] = [];
   for (const [k, v] of Object.entries(fields)) {
     const allowed = ["question_text", "answer", "explanation", "difficulty",
-      "question_type", "options", "status", "exam_paper_id", "knowledge_point_id"];
+      "question_type", "options", "status", "knowledge_point_id"];
     if (allowed.includes(k) && v !== undefined) {
       sets.push(`${k} = ?`);
       vals.push(v);
@@ -823,13 +800,12 @@ export function addUserQuestion(
   difficulty?: number,
   options?: string,
   kpId?: number,
-  examPaperId?: number,
 ): number {
   const result = db.prepare(
-    `INSERT INTO questions (user_id, exam_paper_id, knowledge_point_id, question_text, answer,
+    `INSERT INTO questions (user_id, knowledge_point_id, question_text, answer,
        explanation, difficulty, question_type, options, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
-  ).run(userId, examPaperId || null, kpId || null, questionText, answer,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+  ).run(userId, kpId || null, questionText, answer,
     explanation || null, difficulty || 1, questionType, options || null,
     new Date().toISOString());
   return result.lastInsertRowid as number;
@@ -864,8 +840,8 @@ export function getUserQuestions(
   ).get(...params) as { cnt: number };
 
   const questions = db.prepare(
-    `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
-            q.options, q.knowledge_point_id, q.status, q.exam_paper_id
+    `    SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
+            q.options, q.knowledge_point_id, q.status
      FROM questions q
      WHERE ${where}
      ORDER BY q.created_at DESC
@@ -883,7 +859,7 @@ export function updateUserQuestion(
   const sets: string[] = [];
   const vals: unknown[] = [];
   const allowed = ["question_text", "answer", "explanation", "difficulty",
-    "question_type", "options", "status", "knowledge_point_id", "exam_paper_id"];
+    "question_type", "options", "status", "knowledge_point_id"];
   for (const [k, v] of Object.entries(fields)) {
     if (allowed.includes(k) && v !== undefined) {
       sets.push(`${k} = ?`);
@@ -915,19 +891,18 @@ export function bulkImportUserQuestions(
     difficulty?: number;
     options?: string;
     knowledge_point_id?: number;
-    exam_paper_id?: number;
   }[],
 ): { imported: number } {
   const stmt = db.prepare(
-    `INSERT INTO questions (user_id, exam_paper_id, knowledge_point_id, question_text, answer,
+    `INSERT INTO questions (user_id, knowledge_point_id, question_text, answer,
        explanation, difficulty, question_type, options, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
   );
   const now = new Date().toISOString();
   const insertMany = db.transaction(() => {
     let count = 0;
     for (const q of items) {
-      stmt.run(userId, q.exam_paper_id || null, q.knowledge_point_id || null,
+      stmt.run(userId, q.knowledge_point_id || null,
         q.question_text, q.answer, q.explanation || null,
         q.difficulty || 1, q.question_type || "short_answer",
         q.options || null, now);
@@ -972,8 +947,8 @@ export function getQuestionsAdmin(opts?: {
   const params: unknown[] = [];
 
   if (opts?.subjectId) {
-    conditions.push(`(q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?) OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`);
-    params.push(opts.subjectId, opts.subjectId);
+    conditions.push(`q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`);
+    params.push(opts.subjectId);
   }
   if (opts?.kpId) {
     const kpIds = getAllDescendantKpIds(opts.kpId);
@@ -993,7 +968,7 @@ export function getQuestionsAdmin(opts?: {
 
   const questions = db.prepare(
     `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
-            q.options, q.knowledge_point_id, q.status, q.exam_paper_id, q.user_id
+            q.options, q.knowledge_point_id, q.status, q.user_id
      FROM questions q ${where}
      ORDER BY q.created_at DESC
      LIMIT ? OFFSET ?`,
@@ -1025,19 +1000,19 @@ export function bulkImportQuestionsAdmin(
   items: {
     question_text: string; answer: string; question_type?: string;
     explanation?: string; difficulty?: number; options?: string;
-    knowledge_point_id?: number; exam_paper_id?: number; status?: string; user_id?: number;
+    knowledge_point_id?: number; status?: string; user_id?: number;
   }[],
 ): { imported: number } {
   const stmt = db.prepare(
-    `INSERT INTO questions (user_id, exam_paper_id, knowledge_point_id, question_text, answer,
+    `INSERT INTO questions (user_id, knowledge_point_id, question_text, answer,
        explanation, difficulty, question_type, options, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const now = new Date().toISOString();
   const insertMany = db.transaction(() => {
     let count = 0;
     for (const q of items) {
-      stmt.run(q.user_id || null, q.exam_paper_id || null, q.knowledge_point_id || null,
+      stmt.run(q.user_id || null, q.knowledge_point_id || null,
         q.question_text, q.answer, q.explanation || null,
         q.difficulty || 1, q.question_type || "short_answer",
         q.options || null, q.status || "draft", now);
@@ -1222,10 +1197,9 @@ export function getDueReviews(userId: number, subjectId?: number): WrongQuestion
     JOIN questions q ON wq.question_id = q.id
     WHERE wq.user_id = ? AND wq.next_review_at <= ? AND wq.mastered = 0`;
   if (subjectId) {
-    query += ` AND (q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)
-                 OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`;
+    query += ` AND q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`;
     return db.prepare(query + " ORDER BY wq.next_review_at ASC LIMIT 20").all(
-      userId, now, subjectId, subjectId,
+      userId, now, subjectId,
     ) as WrongQuestionRow[];
   }
   return db.prepare(query + " ORDER BY wq.next_review_at ASC LIMIT 20").all(
@@ -1280,8 +1254,7 @@ export function getWrongQuestionsBySubject(
        FROM wrong_questions wq
        JOIN questions q ON wq.question_id = q.id
        LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-       LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
-       LEFT JOIN subjects s ON (kp.subject_id = s.id OR ep.subject_id = s.id)
+       LEFT JOIN subjects s ON kp.subject_id = s.id
        WHERE wq.user_id = ? AND s.id = ?
        ORDER BY wq.wrong_count DESC`,
     ).all(userId, subjectId) as {
@@ -1293,8 +1266,7 @@ export function getWrongQuestionsBySubject(
      FROM wrong_questions wq
      JOIN questions q ON wq.question_id = q.id
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-     LEFT JOIN exam_papers ep ON q.exam_paper_id = ep.id
-     LEFT JOIN subjects s ON (kp.subject_id = s.id OR ep.subject_id = s.id)
+     LEFT JOIN subjects s ON kp.subject_id = s.id
      WHERE wq.user_id = ?
      ORDER BY wq.mastered ASC, wq.wrong_count DESC`,
   ).all(userId) as {
@@ -1323,7 +1295,7 @@ export function getStudyStats(userId: number, subjectId?: number): {
 
   const wqParams: (number | string)[] = [userId];
   if (subjectId) {
-    wqParams.push(subjectId, subjectId);
+    wqParams.push(subjectId);
   }
   const wqStats = db.prepare(
     `SELECT
@@ -1334,8 +1306,7 @@ export function getStudyStats(userId: number, subjectId?: number): {
      JOIN questions q ON wq.question_id = q.id
      WHERE wq.user_id = ?` +
     (subjectId
-      ? ` AND (q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)
-            OR q.exam_paper_id IN (SELECT id FROM exam_papers WHERE subject_id = ?))`
+      ? ` AND q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`
       : ""),
   ).get(now, ...wqParams) as { active: number; mastered: number; due: number };
 

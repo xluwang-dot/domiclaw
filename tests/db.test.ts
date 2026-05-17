@@ -27,7 +27,7 @@ function createTestSubject(): number {
 
 function createTestQuestion(subjectId: number, difficulty = 3): number {
   const kpId = addKnowledgePoint(subjectId, "TestKP", "test");
-  return addQuestion(null, kpId, "Test question?", "Answer", "short_answer", undefined, difficulty);
+  return addQuestion(kpId, "Test question?", "Answer", "short_answer", undefined, difficulty);
 }
 
 beforeEach(() => {
@@ -86,8 +86,7 @@ describe("knowledge points", () => {
 describe("questions", () => {
   it("addQuestion and getQuestionById", () => {
     const qId = addQuestion(
-      null, null,
-      "What is 2+2?",
+      null, "What is 2+2?",
       "4",
       "short_answer",
       "Basic addition",
@@ -104,8 +103,8 @@ describe("questions", () => {
   it("getQuestionsBySubject with KP association", () => {
     const subjId = addSubject("TestBiology", null);
     const kpId = addKnowledgePoint(subjId, "Cell Division", "mitosis & meiosis");
-    addQuestion(null, kpId, "What is mitosis?", "Cell division", "short_answer", undefined, 1);
-    addQuestion(null, kpId, "What is meiosis?", "Gamete formation", "short_answer", undefined, 1);
+    addQuestion(kpId, "What is mitosis?", "Cell division", "short_answer", undefined, 1);
+    addQuestion(kpId, "What is meiosis?", "Gamete formation", "short_answer", undefined, 1);
 
     const questions = getQuestionsBySubject(subjId, 10);
     expect(questions.length).toBe(2);

@@ -24,7 +24,7 @@ beforeEach(() => {
 
   const subjId = addSubject("TestQuizbook", null);
   const kpId = addKnowledgePoint(subjId, "TestKP", "test");
-  questionId = addQuestion(null, kpId, "Test Q?", "Answer", "short_answer", undefined, 1);
+  questionId = addQuestion(kpId, "Test Q?", "Answer", "short_answer", undefined, 1);
   sessionId = createQuizSession(subjId, 1);
 });
 
@@ -74,7 +74,7 @@ describe("user_quizbook — recordQuizAnswer", () => {
   });
 
   it("should handle multiple answers in same session", () => {
-    const qId2 = addQuestion(null, null, "Second Q?", "Ans2", "short_answer", undefined, 1);
+    const qId2 = addQuestion(null, "Second Q?", "Ans2", "short_answer", undefined, 1);
     recordQuizAnswer(sessionId, 1, questionId, "first", true);
     recordQuizAnswer(sessionId, 1, qId2, "second", false);
 
