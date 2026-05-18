@@ -57,6 +57,22 @@ describe("subjects", () => {
     const subject = getSubjectByName("NonExistent");
     expect(subject).toBeUndefined();
   });
+
+  it("getSubjectByName should match by name_cn (Chinese name)", () => {
+    addSubject("MathTest", "test desc", "数学测试");
+    const subject = getSubjectByName("数学测试");
+    expect(subject).toBeDefined();
+    expect(subject!.name).toBe("MathTest");
+    expect(subject!.name_cn).toBe("数学测试");
+  });
+
+  it("getSubjectByName should match by alias", () => {
+    addSubject("TestAliasSubj", null, "别名测试", "测试别名");
+    const subject = getSubjectByName("测试别名");
+    expect(subject).toBeDefined();
+    expect(subject!.name).toBe("TestAliasSubj");
+    expect(subject!.alias).toBe("测试别名");
+  });
 });
 
 describe("knowledge points", () => {
@@ -244,7 +260,7 @@ describe("kp relations — prerequisite_ids / related_ids", () => {
     const kpId = addKnowledgePoint(subjId, "Test KP", "test content");
 
     const row = testDb.prepare(
-      "SELECT prerequisite_ids, related_ids FROM knowledge_points WHERE id = ?"
+      "SELECT prerequisite_ids, related_ids FROM sys_knowledgepoints WHERE id = ?"
     ).get(kpId) as { prerequisite_ids: string | null; related_ids: string | null };
 
     expect(row.prerequisite_ids).toBeNull();

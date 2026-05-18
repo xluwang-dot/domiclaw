@@ -15,7 +15,7 @@ export function getDatabase(): Database.Database {
 
 export function createSchema(database: Database.Database): void {
   database.exec(`
-    CREATE TABLE IF NOT EXISTS messages (
+    CREATE TABLE IF NOT EXISTS user_messages (
       id TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
       sender TEXT,
@@ -25,10 +25,10 @@ export function createSchema(database: Database.Database): void {
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0
     );
-    CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
+    CREATE INDEX IF NOT EXISTS idx_timestamp ON user_messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_user ON user_messages(user_id);
 
-    CREATE TABLE IF NOT EXISTS subjects (
+    CREATE TABLE IF NOT EXISTS sys_subjects (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       name_cn TEXT,
@@ -37,10 +37,10 @@ export function createSchema(database: Database.Database): void {
       created_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS knowledge_points (
+    CREATE TABLE IF NOT EXISTS sys_knowledgepoints (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      subject_id INTEGER NOT NULL REFERENCES subjects(id),
-      parent_id INTEGER REFERENCES knowledge_points(id),
+      subject_id INTEGER NOT NULL REFERENCES sys_subjects(id),
+      parent_id INTEGER REFERENCES sys_knowledgepoints(id),
       level_type TEXT NOT NULL DEFAULT 'knowledge_point',
       sort_order INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL,
@@ -53,12 +53,12 @@ export function createSchema(database: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(parent_id, title)
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_kp_subject ON knowledge_points(subject_id);
-    CREATE INDEX IF NOT EXISTS idx_kp_level_type ON knowledge_points(level_type);
-    CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON knowledge_points(subject_id, level_type);
-    CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON knowledge_points(parent_id, sort_order);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON sys_knowledgepoints(subject_id, alias) WHERE alias IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_kp_parent ON sys_knowledgepoints(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_kp_subject ON sys_knowledgepoints(subject_id);
+    CREATE INDEX IF NOT EXISTS idx_kp_level_type ON sys_knowledgepoints(level_type);
+    CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON sys_knowledgepoints(subject_id, level_type);
+    CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON sys_knowledgepoints(parent_id, sort_order);
 
     CREATE TABLE IF NOT EXISTS sys_questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,10 +74,10 @@ export function createSchema(database: Database.Database): void {
       options TEXT,
       status TEXT NOT NULL DEFAULT 'published',
       created_at TEXT NOT NULL,
-      FOREIGN KEY (knowledge_point_id) REFERENCES knowledge_points(id)
+      FOREIGN KEY (knowledge_point_id) REFERENCES sys_knowledgepoints(id)
     );
 
-    CREATE TABLE IF NOT EXISTS quiz_sessions (
+    CREATE TABLE IF NOT EXISTS user_quizsessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
@@ -85,9 +85,9 @@ export function createSchema(database: Database.Database): void {
       finished_at TEXT,
       total_questions INTEGER DEFAULT 0,
       correct_count INTEGER DEFAULT 0,
-      FOREIGN KEY (subject_id) REFERENCES subjects(id)
+      FOREIGN KEY (subject_id) REFERENCES sys_subjects(id)
     );
-    CREATE INDEX IF NOT EXISTS idx_qs_user ON quiz_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_qs_user ON user_quizsessions(user_id);
 
     CREATE TABLE IF NOT EXISTS user_quizbook (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,11 +101,11 @@ export function createSchema(database: Database.Database): void {
       duration_seconds INTEGER,
       error_reason TEXT,
       answered_at TEXT NOT NULL,
-      FOREIGN KEY (quiz_session_id) REFERENCES quiz_sessions(id),
+      FOREIGN KEY (quiz_session_id) REFERENCES user_quizsessions(id),
       FOREIGN KEY (question_id) REFERENCES sys_questions(id)
     );
 
-    CREATE TABLE IF NOT EXISTS wrong_questions (
+    CREATE TABLE IF NOT EXISTS user_wrongquestions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       question_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
@@ -119,10 +119,10 @@ export function createSchema(database: Database.Database): void {
       mastered INTEGER DEFAULT 0,
       FOREIGN KEY (question_id) REFERENCES sys_questions(id)
     );
-    CREATE INDEX IF NOT EXISTS idx_wq_next_review ON wrong_questions(next_review_at);
-    CREATE INDEX IF NOT EXISTS idx_wq_user ON wrong_questions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_wq_next_review ON user_wrongquestions(next_review_at);
+    CREATE INDEX IF NOT EXISTS idx_wq_user ON user_wrongquestions(user_id);
 
-    CREATE TABLE IF NOT EXISTS study_plans (
+    CREATE TABLE IF NOT EXISTS user_studyplans (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       subject_id INTEGER,
@@ -131,11 +131,11 @@ export function createSchema(database: Database.Database): void {
       start_date TEXT NOT NULL,
       end_date TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      FOREIGN KEY (subject_id) REFERENCES subjects(id)
+      FOREIGN KEY (subject_id) REFERENCES sys_subjects(id)
     );
-    CREATE INDEX IF NOT EXISTS idx_sp_user ON study_plans(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sp_user ON user_studyplans(user_id);
 
-    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    CREATE TABLE IF NOT EXISTS user_scheduledtasks (
       id TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
       prompt TEXT NOT NULL,
@@ -147,10 +147,10 @@ export function createSchema(database: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_st_next_run ON scheduled_tasks(next_run);
-    CREATE INDEX IF NOT EXISTS idx_st_user ON scheduled_tasks(user_id);
+    CREATE INDEX IF NOT EXISTS idx_st_next_run ON user_scheduledtasks(next_run);
+    CREATE INDEX IF NOT EXISTS idx_st_user ON user_scheduledtasks(user_id);
 
-    CREATE TABLE IF NOT EXISTS session_context (
+    CREATE TABLE IF NOT EXISTS user_sessioncontext (
       user_id INTEGER PRIMARY KEY,
       topic TEXT,
       weak_areas TEXT,
@@ -172,7 +172,7 @@ export function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_un_user ON user_notebook(user_id);
     CREATE INDEX IF NOT EXISTS idx_un_kp ON user_notebook(kp_id);
 
-    CREATE TABLE IF NOT EXISTS query_cache (
+    CREATE TABLE IF NOT EXISTS sys_querycache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
       pattern TEXT NOT NULL,
@@ -196,7 +196,7 @@ export function createSchema(database: Database.Database): void {
 
   // Seed common subjects on first run
   const count = database.prepare(
-    "SELECT COUNT(*) as cnt FROM subjects",
+    "SELECT COUNT(*) as cnt FROM sys_subjects",
   ).get() as { cnt: number };
   if (count.cnt === 0) {
     const now = new Date().toISOString();
@@ -212,7 +212,7 @@ export function createSchema(database: Database.Database): void {
       { name: "Politics", name_cn: "政治", alias: "道法" },
     ];
     const insert = database.prepare(
-      "INSERT INTO subjects (name, name_cn, alias, description, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO sys_subjects (name, name_cn, alias, description, created_at) VALUES (?, ?, ?, ?, ?)",
     );
     for (const s of subjects) {
       insert.run(s.name, s.name_cn, s.alias, null, now);
@@ -276,12 +276,12 @@ export function validateKnowledgePointLevel(
 }
 
 function ensureRootKnowledgePoints(database: Database.Database): void {
-  const subjects = database.prepare("SELECT id, name, name_cn FROM subjects").all() as { id: number; name: string; name_cn: string | null }[];
+  const subjects = database.prepare("SELECT id, name, name_cn FROM sys_subjects").all() as { id: number; name: string; name_cn: string | null }[];
   const exists = database.prepare(
-    "SELECT 1 FROM knowledge_points WHERE subject_id = ? AND parent_id IS NULL AND level_type = 'root'",
+    "SELECT 1 FROM sys_knowledgepoints WHERE subject_id = ? AND parent_id IS NULL AND level_type = 'root'",
   );
   const insert = database.prepare(
-    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at, updated_at)
+    `INSERT INTO sys_knowledgepoints (subject_id, parent_id, title, content, level_type, sort_order, created_at, updated_at)
      VALUES (?, NULL, ?, ?, 'root', 0, ?, ?)`,
   );
   const now = new Date().toISOString();
@@ -333,6 +333,28 @@ export function initDatabase(): void {
   // Drop exam_papers table (removed in T056)
   try { db.exec("DROP TABLE IF EXISTS exam_papers"); } catch { /* ok */ }
 
+  // Table prefix migration (T054): system → sys_, user → user_
+  const tableRenames: [string, string][] = [
+    ["subjects", "sys_subjects"],
+    ["knowledge_points", "sys_knowledgepoints"],
+    ["query_cache", "sys_querycache"],
+    ["users", "sys_users"],
+    ["messages", "user_messages"],
+    ["quiz_sessions", "user_quizsessions"],
+    ["wrong_questions", "user_wrongquestions"],
+    ["study_plans", "user_studyplans"],
+    ["scheduled_tasks", "user_scheduledtasks"],
+    ["session_context", "user_sessioncontext"],
+  ];
+  for (const [oldName, newName] of tableRenames) {
+    try {
+      const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(oldName);
+      if (exists) {
+        db.exec(`ALTER TABLE "${oldName}" RENAME TO "${newName}"`);
+      }
+    } catch { /* already migrated — skip */ }
+  }
+
   // Rename questions → sys_questions (T053)
   try {
     const hasOldQuestions = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='questions'").get();
@@ -375,7 +397,7 @@ export function initDatabase(): void {
       }
 
       const update = db.prepare(
-        "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+        "UPDATE sys_knowledgepoints SET exercise_point_names = ? WHERE id = ?"
       );
       for (const [kpId, names] of kpMap) {
         update.run(JSON.stringify(names), kpId);
@@ -390,8 +412,8 @@ export function initDatabase(): void {
 
   // Migrate tags->alias: extract en from {"en":"rational_number"} JSON
   try {
-    const rows = db.prepare("SELECT id, tags FROM knowledge_points WHERE tags IS NOT NULL AND alias IS NULL").all() as { id: number; tags: string }[];
-    const update = db.prepare("UPDATE knowledge_points SET alias = ? WHERE id = ?");
+    const rows = db.prepare("SELECT id, tags FROM sys_knowledgepoints WHERE tags IS NOT NULL AND alias IS NULL").all() as { id: number; tags: string }[];
+    const update = db.prepare("UPDATE sys_knowledgepoints SET alias = ? WHERE id = ?");
     for (const r of rows) {
       try {
         const obj = JSON.parse(r.tags);
@@ -455,7 +477,7 @@ export function initDatabase(): void {
     "Politics": { name_cn: "政治", alias: "道法" },
   };
   const updateSubject = db.prepare(
-    "UPDATE subjects SET name_cn = ?, alias = ? WHERE name = ? AND name_cn IS NULL",
+    "UPDATE sys_subjects SET name_cn = ?, alias = ? WHERE name = ? AND name_cn IS NULL",
   );
   for (const [name, info] of Object.entries(nameCnMap)) {
     updateSubject.run(info.name_cn, info.alias, name);
@@ -477,7 +499,7 @@ export function initDatabase(): void {
 
 export function storeMessage(msg: NewMessage, userId: number): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages
+    `INSERT OR REPLACE INTO user_messages
      (id, user_id, sender, sender_name, content, timestamp, is_from_me, is_bot_message)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -493,7 +515,7 @@ export function getMessagesSince(
 ): NewMessage[] {
   let query = `
     SELECT id, sender, sender_name, content, timestamp, is_from_me, is_bot_message
-    FROM messages WHERE user_id = ? AND timestamp > ?
+    FROM user_messages WHERE user_id = ? AND timestamp > ?
   `;
   const params: (number | string)[] = [userId, afterTimestamp];
   query += ` ORDER BY timestamp ASC LIMIT ?`;
@@ -509,14 +531,15 @@ export interface SubjectRow {
 
 export function getAllSubjects(): SubjectRow[] {
   return db.prepare(
-    "SELECT id, name, name_cn, alias, description FROM subjects ORDER BY name",
+    "SELECT id, name, name_cn, alias, description FROM sys_subjects ORDER BY name",
   ).all() as SubjectRow[];
 }
 
 export function getSubjectByName(name: string): SubjectRow | undefined {
   return db.prepare(
-    "SELECT id, name, name_cn, alias, description FROM subjects WHERE name = ?",
-  ).get(name) as SubjectRow | undefined;
+    `SELECT id, name, name_cn, alias, description FROM sys_subjects
+     WHERE name = ? OR name_cn = ? OR alias = ?`,
+  ).get(name, name, name) as SubjectRow | undefined;
 }
 
 export function addSubject(
@@ -524,20 +547,20 @@ export function addSubject(
   nameCn: string | null = null, alias: string | null = null,
 ): number {
   const result = db.prepare(
-    "INSERT INTO subjects (name, name_cn, alias, description, created_at) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO sys_subjects (name, name_cn, alias, description, created_at) VALUES (?, ?, ?, ?, ?)",
   ).run(name, nameCn, alias, description, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
 export function updateSubject(id: number, name: string, description: string | null): boolean {
   const result = db.prepare(
-    "UPDATE subjects SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?",
+    "UPDATE sys_subjects SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?",
   ).run(name, description, id);
   return result.changes > 0;
 }
 
 export function deleteSubject(id: number): boolean {
-  const result = db.prepare("DELETE FROM subjects WHERE id = ?").run(id);
+  const result = db.prepare("DELETE FROM sys_subjects WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
@@ -561,7 +584,7 @@ export function addKnowledgePoint(
 ): number {
   const now = new Date().toISOString();
   const result = db.prepare(
-    `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, alias, prerequisite_ids, related_ids, created_at, updated_at)
+    `INSERT INTO sys_knowledgepoints (subject_id, parent_id, title, content, level_type, sort_order, alias, prerequisite_ids, related_ids, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(subjectId, parentId || null, title, content || null, levelType || "knowledge_point", sortOrder || 0, alias || null, prerequisiteIds || null, relatedIds || null, now, now);
   return result.lastInsertRowid as number;
@@ -573,31 +596,31 @@ export function searchKnowledgePoints(query: string, subjectId?: number): Knowle
   const like = `%${query}%`;
   if (subjectId) {
     return db.prepare(
-      `SELECT ${KP_SELECT} FROM knowledge_points
+      `SELECT ${KP_SELECT} FROM sys_knowledgepoints
        WHERE (title LIKE ? OR content LIKE ? OR alias LIKE ?) AND subject_id = ?
        ORDER BY level_type, sort_order, title LIMIT 20`,
     ).all(like, like, like, subjectId) as KnowledgePointRow[];
   }
   return db.prepare(
-    `SELECT ${KP_SELECT} FROM knowledge_points
+    `SELECT ${KP_SELECT} FROM sys_knowledgepoints
      WHERE title LIKE ? OR content LIKE ? OR alias LIKE ?
      ORDER BY level_type, sort_order, title LIMIT 20`,
   ).all(like, like, like) as KnowledgePointRow[];
 }
 
 export function getKnowledgePointById(id: number): KnowledgePointRow | undefined {
-  return db.prepare(`SELECT ${KP_SELECT} FROM knowledge_points WHERE id = ?`).get(id) as KnowledgePointRow | undefined;
+  return db.prepare(`SELECT ${KP_SELECT} FROM sys_knowledgepoints WHERE id = ?`).get(id) as KnowledgePointRow | undefined;
 }
 
 export function getKnowledgePointsBySubject(subjectId: number): KnowledgePointRow[] {
   return db.prepare(
-    `SELECT ${KP_SELECT} FROM knowledge_points WHERE subject_id = ? ORDER BY level_type, sort_order, title`,
+    `SELECT ${KP_SELECT} FROM sys_knowledgepoints WHERE subject_id = ? ORDER BY level_type, sort_order, title`,
   ).all(subjectId) as KnowledgePointRow[];
 }
 
 export function getAllKnowledgePoints(): KnowledgePointRow[] {
   return db.prepare(
-    `SELECT ${KP_SELECT} FROM knowledge_points ORDER BY subject_id, level_type, sort_order, title`,
+    `SELECT ${KP_SELECT} FROM sys_knowledgepoints ORDER BY subject_id, level_type, sort_order, title`,
   ).all() as KnowledgePointRow[];
 }
 
@@ -609,7 +632,7 @@ export function updateKnowledgePoint(
 ): boolean {
   const now = new Date().toISOString();
   const result = db.prepare(
-    `UPDATE knowledge_points
+    `UPDATE sys_knowledgepoints
      SET title = COALESCE(?, title), content = COALESCE(?, content),
          alias = COALESCE(?, alias), parent_id = COALESCE(?, parent_id),
          level_type = COALESCE(?, level_type), sort_order = COALESCE(?, sort_order),
@@ -640,7 +663,7 @@ export function updateKnowledgePointRelations(
 ): boolean {
   const now = new Date().toISOString();
   const result = db.prepare(
-    `UPDATE knowledge_points
+    `UPDATE sys_knowledgepoints
      SET prerequisite_ids = ?, related_ids = ?, updated_at = ?
      WHERE id = ?`,
   ).run(prerequisiteIds, relatedIds, now, id);
@@ -648,7 +671,7 @@ export function updateKnowledgePointRelations(
 }
 
 export function deleteKnowledgePoint(id: number): boolean {
-  const result = db.prepare("DELETE FROM knowledge_points WHERE id = ?").run(id);
+  const result = db.prepare("DELETE FROM sys_knowledgepoints WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
@@ -689,7 +712,7 @@ export function getQuestionsBySubject(subjectId: number, limit = 50): QuestionRo
     `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
             q.options, q.knowledge_point_id, q.knowledge_point_ids
      FROM sys_questions q
-     JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
+     JOIN sys_knowledgepoints kp ON q.knowledge_point_id = kp.id
      WHERE kp.subject_id = ? AND q.status = 'published'
      LIMIT 500`,
   ).all(subjectId) as QuestionRow[];
@@ -712,7 +735,7 @@ export function getQuestionsForKpQuiz(
   let query = `
     SELECT id, question_text, answer, explanation, difficulty, question_type,
            options, knowledge_point_id
-    FROM questions
+    FROM sys_questions
     WHERE knowledge_point_id = ?
       AND (user_id IS NULL OR user_id = ?)
       AND status = 'published'
@@ -936,7 +959,7 @@ export function getAllDescendantKpIds(rootId: number): number[] {
   while (queue.length > 0) {
     const parentId = queue.shift()!;
     const children = db.prepare(
-      "SELECT id FROM knowledge_points WHERE parent_id = ?",
+      "SELECT id FROM sys_knowledgepoints WHERE parent_id = ?",
     ).all(parentId) as { id: number }[];
     for (const c of children) {
       result.push(c.id);
@@ -955,7 +978,7 @@ export function getQuestionsAdmin(opts?: {
   const params: unknown[] = [];
 
   if (opts?.subjectId) {
-    conditions.push(`q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`);
+    conditions.push(`q.knowledge_point_id IN (SELECT id FROM sys_knowledgepoints WHERE subject_id = ?)`);
     params.push(opts.subjectId);
   }
   if (opts?.kpId) {
@@ -1038,20 +1061,20 @@ export function getUserProfile(userId: number): {
 } {
   const answers = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
-     FROM user_quizbook qa JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
+     FROM user_quizbook qa JOIN user_quizsessions qs ON qa.quiz_session_id = qs.id
      WHERE qs.user_id = ?`,
   ).get(userId) as { total: number; correct: number };
 
   const activeDays = db.prepare(
-    `SELECT COUNT(DISTINCT DATE(timestamp)) as cnt FROM messages WHERE user_id = ?`,
+    `SELECT COUNT(DISTINCT DATE(timestamp)) as cnt FROM user_messages WHERE user_id = ?`,
   ).get(userId) as { cnt: number };
 
   const plans = db.prepare(
-    "SELECT COUNT(*) as cnt FROM study_plans WHERE user_id = ?",
+    "SELECT COUNT(*) as cnt FROM user_studyplans WHERE user_id = ?",
   ).get(userId) as { cnt: number };
 
   const quizzes = db.prepare(
-    "SELECT COUNT(*) as cnt FROM quiz_sessions WHERE user_id = ?",
+    "SELECT COUNT(*) as cnt FROM user_quizsessions WHERE user_id = ?",
   ).get(userId) as { cnt: number };
 
   const weakKps = db.prepare(
@@ -1079,16 +1102,16 @@ export function getUserProfile(userId: number): {
 
 export function deleteUserCascade(userId: number): void {
   const del = db.transaction(() => {
-    db.prepare("DELETE FROM messages WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM user_quizbook WHERE quiz_session_id IN (SELECT id FROM quiz_sessions WHERE user_id = ?)").run(userId);
-    db.prepare("DELETE FROM quiz_sessions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM wrong_questions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM study_plans WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM scheduled_tasks WHERE user_id = ?").run(String(userId));
-    db.prepare("DELETE FROM session_context WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_messages WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_quizbook WHERE quiz_session_id IN (SELECT id FROM user_quizsessions WHERE user_id = ?)").run(userId);
+    db.prepare("DELETE FROM user_quizsessions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_wrongquestions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_studyplans WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_scheduledtasks WHERE user_id = ?").run(String(userId));
+    db.prepare("DELETE FROM user_sessioncontext WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM user_notebook WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM sys_questions WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    db.prepare("DELETE FROM sys_users WHERE id = ?").run(userId);
   });
   del();
 }
@@ -1097,7 +1120,7 @@ export function deleteUserCascade(userId: number): void {
 
 export function createQuizSession(subjectId: number, userId: number): number {
   const result = db.prepare(
-    "INSERT INTO quiz_sessions (subject_id, user_id, started_at) VALUES (?, ?, ?)",
+    "INSERT INTO user_quizsessions (subject_id, user_id, started_at) VALUES (?, ?, ?)",
   ).run(subjectId, userId, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
@@ -1130,7 +1153,7 @@ export function finishQuizSession(sessionId: number): { total: number; correct: 
     "SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct FROM user_quizbook WHERE quiz_session_id = ?",
   ).get(sessionId) as { total: number; correct: number };
   db.prepare(
-    "UPDATE quiz_sessions SET finished_at = ?, total_questions = ?, correct_count = ? WHERE id = ?",
+    "UPDATE user_quizsessions SET finished_at = ?, total_questions = ?, correct_count = ? WHERE id = ?",
   ).run(new Date().toISOString(), stats.total, stats.correct, sessionId);
   return stats;
 }
@@ -1139,7 +1162,7 @@ export function getActiveQuizSession(userId: number): {
   id: number; subject_id: number; started_at: string;
 } | undefined {
   return db.prepare(
-    `SELECT id, subject_id, started_at FROM quiz_sessions
+    `SELECT id, subject_id, started_at FROM user_quizsessions
      WHERE user_id = ? AND finished_at IS NULL
      ORDER BY started_at DESC LIMIT 1`,
   ).get(userId) as { id: number; subject_id: number; started_at: string } | undefined;
@@ -1157,7 +1180,7 @@ export function getQuizSessionAnswers(sessionId: number): {
 
 export function recordWrongQuestion(questionId: number, userId: number, subjectId: number): void {
   const existing = db.prepare(
-    "SELECT id, wrong_count FROM wrong_questions WHERE question_id = ? AND user_id = ?",
+    "SELECT id, wrong_count FROM user_wrongquestions WHERE question_id = ? AND user_id = ?",
   ).get(questionId, userId) as { id: number; wrong_count: number } | undefined;
 
   const now = new Date();
@@ -1165,14 +1188,14 @@ export function recordWrongQuestion(questionId: number, userId: number, subjectI
 
   if (existing) {
     db.prepare(
-      `UPDATE wrong_questions
+      `UPDATE user_wrongquestions
        SET wrong_count = ?, subject_id = ?, consecutive_correct = 0, last_reviewed_at = ?,
            next_review_at = ?, review_interval_days = 1, mastered = 0
        WHERE id = ?`,
     ).run(existing.wrong_count + 1, subjectId, now.toISOString(), nextReview.toISOString(), existing.id);
   } else {
     db.prepare(
-      `INSERT INTO wrong_questions (question_id, user_id, wrong_count, consecutive_correct,
+      `INSERT INTO user_wrongquestions (question_id, user_id, wrong_count, consecutive_correct,
          last_reviewed_at, next_review_at, review_interval_days, mastered)
        VALUES (?, ?, 1, 0, ?, ?, 1, 0)`,
     ).run(questionId, userId, now.toISOString(), nextReview.toISOString());
@@ -1201,11 +1224,11 @@ export function getDueReviews(userId: number, subjectId?: number): WrongQuestion
     SELECT wq.id, wq.question_id, q.question_text, q.answer, q.explanation,
            q.question_type, q.options, wq.wrong_count, wq.consecutive_correct,
            wq.last_reviewed_at, wq.next_review_at, wq.review_interval_days, wq.mastered
-    FROM wrong_questions wq
+    FROM user_wrongquestions wq
     JOIN sys_questions q ON wq.question_id = q.id
     WHERE wq.user_id = ? AND wq.next_review_at <= ? AND wq.mastered = 0`;
   if (subjectId) {
-    query += ` AND q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`;
+    query += ` AND q.knowledge_point_id IN (SELECT id FROM sys_knowledgepoints WHERE subject_id = ?)`;
     return db.prepare(query + " ORDER BY wq.next_review_at ASC LIMIT 20").all(
       userId, now, subjectId,
     ) as WrongQuestionRow[];
@@ -1219,7 +1242,7 @@ export function updateReviewResult(wrongQuestionId: number, isCorrect: boolean):
   consecutive_correct: number; mastered: boolean; next_review_at: string;
 } {
   const row = db.prepare(
-    "SELECT consecutive_correct, review_interval_days FROM wrong_questions WHERE id = ?",
+    "SELECT consecutive_correct, review_interval_days FROM user_wrongquestions WHERE id = ?",
   ).get(wrongQuestionId) as { consecutive_correct: number; review_interval_days: number };
 
   const now = new Date();
@@ -1233,7 +1256,7 @@ export function updateReviewResult(wrongQuestionId: number, isCorrect: boolean):
     const nextReview = new Date(now.getTime() + newInterval * 24 * 60 * 60 * 1000);
 
     db.prepare(
-      `UPDATE wrong_questions
+      `UPDATE user_wrongquestions
        SET consecutive_correct = ?, last_reviewed_at = ?, next_review_at = ?,
            review_interval_days = ?, mastered = ?
        WHERE id = ?`,
@@ -1244,7 +1267,7 @@ export function updateReviewResult(wrongQuestionId: number, isCorrect: boolean):
 
   const nextReview = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   db.prepare(
-    `UPDATE wrong_questions
+    `UPDATE user_wrongquestions
      SET consecutive_correct = 0, last_reviewed_at = ?, next_review_at = ?,
          review_interval_days = 1, mastered = 0
      WHERE id = ?`,
@@ -1259,10 +1282,10 @@ export function getWrongQuestionsBySubject(
   if (subjectId) {
     return db.prepare(
       `SELECT q.question_text, q.answer, wq.wrong_count, wq.mastered, s.name as subject_name
-       FROM wrong_questions wq
+       FROM user_wrongquestions wq
        JOIN sys_questions q ON wq.question_id = q.id
-       LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-       LEFT JOIN subjects s ON kp.subject_id = s.id
+       LEFT JOIN sys_knowledgepoints kp ON q.knowledge_point_id = kp.id
+       LEFT JOIN sys_subjects s ON kp.subject_id = s.id
        WHERE wq.user_id = ? AND s.id = ?
        ORDER BY wq.wrong_count DESC`,
     ).all(userId, subjectId) as {
@@ -1271,10 +1294,10 @@ export function getWrongQuestionsBySubject(
   }
   return db.prepare(
     `SELECT q.question_text, q.answer, wq.wrong_count, wq.mastered, COALESCE(s.name, 'Unknown') as subject_name
-     FROM wrong_questions wq
+     FROM user_wrongquestions wq
      JOIN sys_questions q ON wq.question_id = q.id
-     LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-     LEFT JOIN subjects s ON kp.subject_id = s.id
+     LEFT JOIN sys_knowledgepoints kp ON q.knowledge_point_id = kp.id
+     LEFT JOIN sys_subjects s ON kp.subject_id = s.id
      WHERE wq.user_id = ?
      ORDER BY wq.mastered ASC, wq.wrong_count DESC`,
   ).all(userId) as {
@@ -1289,14 +1312,14 @@ export function getStudyStats(userId: number, subjectId?: number): {
   const now = new Date().toISOString();
 
   const quizCount = db.prepare(
-    "SELECT COUNT(*) as cnt FROM quiz_sessions WHERE user_id = ?" +
+    "SELECT COUNT(*) as cnt FROM user_quizsessions WHERE user_id = ?" +
     (subjectId ? " AND subject_id = ?" : ""),
   ).get(userId, ...(subjectId ? [subjectId] : [])) as { cnt: number };
 
   const answerStats = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(is_correct), 0) as correct
      FROM user_quizbook qa
-     JOIN quiz_sessions qs ON qa.quiz_session_id = qs.id
+     JOIN user_quizsessions qs ON qa.quiz_session_id = qs.id
      WHERE qs.user_id = ?` +
     (subjectId ? " AND qs.subject_id = ?" : ""),
   ).get(userId, ...(subjectId ? [subjectId] : [])) as { total: number; correct: number };
@@ -1310,11 +1333,11 @@ export function getStudyStats(userId: number, subjectId?: number): {
        COALESCE(SUM(CASE WHEN wq.mastered = 0 THEN 1 ELSE 0 END), 0) as active,
        COALESCE(SUM(CASE WHEN wq.mastered = 1 THEN 1 ELSE 0 END), 0) as mastered,
        COALESCE(SUM(CASE WHEN wq.next_review_at <= ? AND wq.mastered = 0 THEN 1 ELSE 0 END), 0) as due
-     FROM wrong_questions wq
+     FROM user_wrongquestions wq
      JOIN sys_questions q ON wq.question_id = q.id
      WHERE wq.user_id = ?` +
     (subjectId
-      ? ` AND q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`
+      ? ` AND q.knowledge_point_id IN (SELECT id FROM sys_knowledgepoints WHERE subject_id = ?)`
       : ""),
   ).get(now, ...wqParams) as { active: number; mastered: number; due: number };
 
@@ -1343,7 +1366,7 @@ export function createStudyPlan(
   startDate: string, endDate: string, subjectId?: number,
 ): number {
   const result = db.prepare(
-    `INSERT INTO study_plans (user_id, subject_id, title, plan_data, start_date, end_date, created_at)
+    `INSERT INTO user_studyplans (user_id, subject_id, title, plan_data, start_date, end_date, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(userId, subjectId || null, title, JSON.stringify(planData), startDate, endDate, new Date().toISOString());
   return result.lastInsertRowid as number;
@@ -1351,7 +1374,7 @@ export function createStudyPlan(
 
 export function getStudyPlan(planId: number): (StudyPlanRow & { tasks: PlanTask[] }) | undefined {
   const row = db.prepare(
-    "SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at FROM study_plans WHERE id = ?",
+    "SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at FROM user_studyplans WHERE id = ?",
   ).get(planId) as StudyPlanRow | undefined;
   if (!row) return undefined;
   const tasks = JSON.parse(row.plan_data) as PlanTask[];
@@ -1361,7 +1384,7 @@ export function getStudyPlan(planId: number): (StudyPlanRow & { tasks: PlanTask[
 export function getActiveStudyPlan(userId: number): (StudyPlanRow & { tasks: PlanTask[] }) | undefined {
   const row = db.prepare(
     `SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at
-     FROM study_plans WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`,
+     FROM user_studyplans WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`,
   ).get(userId) as StudyPlanRow | undefined;
   if (!row) return undefined;
   const tasks = JSON.parse(row.plan_data) as PlanTask[];
@@ -1373,7 +1396,7 @@ export function markPlanTaskDone(planId: number, dayIndex: number): PlanTask[] |
   if (!plan) return null;
   if (dayIndex < 0 || dayIndex >= plan.tasks.length) return null;
   plan.tasks[dayIndex].completed = true;
-  db.prepare("UPDATE study_plans SET plan_data = ? WHERE id = ?").run(JSON.stringify(plan.tasks), planId);
+  db.prepare("UPDATE user_studyplans SET plan_data = ? WHERE id = ?").run(JSON.stringify(plan.tasks), planId);
   return plan.tasks;
 }
 
@@ -1391,7 +1414,7 @@ export function getStudyPlanProgress(planId: number): {
 export function getStudyPlansByUser(userId: number): StudyPlanRow[] {
   return db.prepare(
     `SELECT id, user_id, subject_id, title, plan_data, start_date, end_date, created_at
-     FROM study_plans WHERE user_id = ? ORDER BY created_at DESC`,
+     FROM user_studyplans WHERE user_id = ? ORDER BY created_at DESC`,
   ).all(userId) as StudyPlanRow[];
 }
 
@@ -1407,7 +1430,7 @@ export function getRecentMessages(
 ): NewMessage[] {
   let query = `
     SELECT id, sender, sender_name, content, timestamp, is_from_me, is_bot_message
-    FROM messages WHERE user_id = ?
+    FROM user_messages WHERE user_id = ?
   `;
   if (excludeBot) query += " AND is_bot_message = 0";
   query += " ORDER BY timestamp DESC LIMIT ?";
@@ -1416,7 +1439,7 @@ export function getRecentMessages(
 
 export function getSessionContext(userId: number): SessionContext | undefined {
   return db.prepare(
-    "SELECT user_id, topic, weak_areas, summary, updated_at FROM session_context WHERE user_id = ?",
+    "SELECT user_id, topic, weak_areas, summary, updated_at FROM user_sessioncontext WHERE user_id = ?",
   ).get(userId) as SessionContext | undefined;
 }
 
@@ -1429,7 +1452,7 @@ export function upsertSessionContext(
 
   if (existing) {
     db.prepare(
-      `UPDATE session_context
+      `UPDATE user_sessioncontext
        SET topic = COALESCE(?, topic), weak_areas = COALESCE(?, weak_areas),
            summary = COALESCE(?, summary), updated_at = ?
        WHERE user_id = ?`,
@@ -1437,7 +1460,7 @@ export function upsertSessionContext(
       summary ?? existing.summary, now, userId);
   } else {
     db.prepare(
-      "INSERT INTO session_context (user_id, topic, weak_areas, summary, updated_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO user_sessioncontext (user_id, topic, weak_areas, summary, updated_at) VALUES (?, ?, ?, ?, ?)",
     ).run(userId, topic || null, weakAreas || null, summary || null, now);
   }
 }
@@ -1445,10 +1468,10 @@ export function upsertSessionContext(
 export function getWeakAreas(userId: number): string[] {
   const rows = db.prepare(
     `SELECT s.name as subject, COUNT(*) as cnt
-     FROM wrong_questions wq
+     FROM user_wrongquestions wq
      JOIN sys_questions q ON wq.question_id = q.id
-     LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
-     LEFT JOIN subjects s ON kp.subject_id = s.id
+     LEFT JOIN sys_knowledgepoints kp ON q.knowledge_point_id = kp.id
+     LEFT JOIN sys_subjects s ON kp.subject_id = s.id
      WHERE wq.user_id = ? AND wq.mastered = 0
      GROUP BY s.name ORDER BY cnt DESC LIMIT 5`,
   ).all(userId) as { subject: string; cnt: number }[];
@@ -1491,7 +1514,7 @@ export function setWrongQuestionRootKp(
   kpId: number,
 ): void {
   db.prepare(
-    `UPDATE wrong_questions SET root_kp_id = COALESCE(root_kp_id, ?)
+    `UPDATE user_wrongquestions SET root_kp_id = COALESCE(root_kp_id, ?)
      WHERE question_id = ? AND user_id = ?`,
   ).run(kpId, questionId, userId);
 }
@@ -1553,7 +1576,7 @@ export function getNotebookWeakKps(userId: number): WeakKpRow[] {
   return db.prepare(
     `SELECT un.kp_id, kp.title as kp_name, un.mastery, un.total_wrong
      FROM user_notebook un
-     JOIN knowledge_points kp ON kp.id = un.kp_id
+     JOIN sys_knowledgepoints kp ON kp.id = un.kp_id
      WHERE un.user_id = ? AND un.total_wrong > 0
      ORDER BY un.mastery ASC
      LIMIT 20`,
@@ -1631,7 +1654,7 @@ export function getDueScheduledTasks(userId: number): ScheduledTaskRow[] {
   return db.prepare(
     `SELECT id, user_id, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
-     FROM scheduled_tasks
+     FROM user_scheduledtasks
      WHERE user_id = ? AND next_run <= ? AND status = 'active'
      ORDER BY next_run ASC`,
   ).all(userId, now) as ScheduledTaskRow[];
@@ -1642,7 +1665,7 @@ export function getAllDueScheduledTasks(): ScheduledTaskRow[] {
   return db.prepare(
     `SELECT id, user_id, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
-     FROM scheduled_tasks
+     FROM user_scheduledtasks
      WHERE next_run <= ? AND status = 'active'
      ORDER BY next_run ASC`,
   ).all(now) as ScheduledTaskRow[];
@@ -1655,7 +1678,7 @@ export function createScheduledTask(
   const id = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const nextRun = computeNextRun(scheduleType, scheduleValue);
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, user_id, prompt, schedule_type, schedule_value, next_run, status, created_at)
+    `INSERT INTO user_scheduledtasks (id, user_id, prompt, schedule_type, schedule_value, next_run, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
   ).run(id, userId, prompt, scheduleType, scheduleValue, nextRun, new Date().toISOString());
   return id;
@@ -1663,12 +1686,12 @@ export function createScheduledTask(
 
 export function updateScheduledTaskRun(id: string, nextRun: string, lastResult?: string): void {
   db.prepare(
-    "UPDATE scheduled_tasks SET last_run = ?, next_run = ?, last_result = ? WHERE id = ?",
+    "UPDATE user_scheduledtasks SET last_run = ?, next_run = ?, last_result = ? WHERE id = ?",
   ).run(new Date().toISOString(), nextRun, lastResult || null, id);
 }
 
 export function cancelScheduledTask(id: string): boolean {
-  const result = db.prepare("UPDATE scheduled_tasks SET status = 'cancelled' WHERE id = ?").run(id);
+  const result = db.prepare("UPDATE user_scheduledtasks SET status = 'cancelled' WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
@@ -1676,7 +1699,7 @@ export function getScheduledTasksByUser(userId: number): ScheduledTaskRow[] {
   return db.prepare(
     `SELECT id, user_id, prompt, schedule_type, schedule_value,
             next_run, last_run, last_result, status, created_at
-     FROM scheduled_tasks WHERE user_id = ? AND status = 'active'
+     FROM user_scheduledtasks WHERE user_id = ? AND status = 'active'
      ORDER BY next_run ASC`,
   ).all(userId) as ScheduledTaskRow[];
 }
@@ -1695,11 +1718,11 @@ export function findCachedQuery(userInput: string, userId: number): QueryCacheRo
 
   for (const userClause of [`(user_id = ? AND pattern = ?)`, `(user_id IS NULL AND pattern = ?)`]) {
     const rows = db.prepare(
-      `SELECT * FROM query_cache WHERE ${userClause} ORDER BY hits DESC LIMIT 1`,
+      `SELECT * FROM sys_querycache WHERE ${userClause} ORDER BY hits DESC LIMIT 1`,
     ).all(userClause.startsWith("(user_id = ?") ? [userId, norm] : [norm]) as QueryCacheRow[];
     if (rows.length > 0) {
       db.prepare(
-        `UPDATE query_cache SET hits = hits + 1, last_hit_at = datetime('now') WHERE id = ?`,
+        `UPDATE sys_querycache SET hits = hits + 1, last_hit_at = datetime('now') WHERE id = ?`,
       ).run(rows[0].id);
       return rows[0];
     }
@@ -1719,30 +1742,30 @@ export function insertCachedQuery(
   if (!norm) return;
 
   const insert = db.prepare(
-    `INSERT INTO query_cache (user_id, pattern, intent, params_json, operation_json)
+    `INSERT INTO sys_querycache (user_id, pattern, intent, params_json, operation_json)
      VALUES (?, ?, ?, ?, ?)`,
   );
 
   if (userId != null && userId > 0) {
     const count = (db.prepare(
-      `SELECT COUNT(*) as c FROM query_cache WHERE user_id = ?`,
+      `SELECT COUNT(*) as c FROM sys_querycache WHERE user_id = ?`,
     ).get(userId) as { c: number }).c;
     if (count >= 100) {
       db.prepare(
-        `DELETE FROM query_cache WHERE id = (
-          SELECT id FROM query_cache WHERE user_id = ? ORDER BY hits ASC LIMIT 1
+        `DELETE FROM sys_querycache WHERE id = (
+          SELECT id FROM sys_querycache WHERE user_id = ? ORDER BY hits ASC LIMIT 1
         )`,
       ).run(userId);
     }
     insert.run(userId, norm, intent, params_json, operation_json);
   } else {
     const count = (db.prepare(
-      `SELECT COUNT(*) as c FROM query_cache WHERE user_id IS NULL AND intent = ?`,
+      `SELECT COUNT(*) as c FROM sys_querycache WHERE user_id IS NULL AND intent = ?`,
     ).get(intent) as { c: number }).c;
     if (count >= 500) {
       db.prepare(
-        `DELETE FROM query_cache WHERE id = (
-          SELECT id FROM query_cache WHERE user_id IS NULL AND intent = ? ORDER BY hits ASC LIMIT 1
+        `DELETE FROM sys_querycache WHERE id = (
+          SELECT id FROM sys_querycache WHERE user_id IS NULL AND intent = ? ORDER BY hits ASC LIMIT 1
         )`,
       ).run(intent);
     }
@@ -1751,12 +1774,12 @@ export function insertCachedQuery(
 }
 
 export function deleteCachedQuery(id: number): void {
-  db.prepare("DELETE FROM query_cache WHERE id = ?").run(id);
+  db.prepare("DELETE FROM sys_querycache WHERE id = ?").run(id);
 }
 
 export function purgeOldCache(days: number = 30): number {
   const result = db.prepare(
-    `DELETE FROM query_cache WHERE last_hit_at < datetime('now', '-' || ? || ' days')`,
+    `DELETE FROM sys_querycache WHERE last_hit_at < datetime('now', '-' || ? || ' days')`,
   ).run(days);
   return result.changes;
 }
@@ -1779,11 +1802,11 @@ export function seedQueryCache(): void {
     const norm = normalizePattern(s.pattern);
     if (!norm) continue;
     const exists = db.prepare(
-      `SELECT id FROM query_cache WHERE user_id IS NULL AND pattern = ? LIMIT 1`,
+      `SELECT id FROM sys_querycache WHERE user_id IS NULL AND pattern = ? LIMIT 1`,
     ).get(norm);
     if (!exists) {
       db.prepare(
-        `INSERT INTO query_cache (user_id, pattern, intent, params_json, operation_json)
+        `INSERT INTO sys_querycache (user_id, pattern, intent, params_json, operation_json)
          VALUES (NULL, ?, ?, ?, ?)`,
       ).run(norm, s.intent, s.params_json, s.operation_json);
     }
