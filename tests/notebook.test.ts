@@ -32,7 +32,7 @@ beforeEach(() => {
   // Create a test user
   const hash = "$2b$10$dummy";
   userId = testDb.prepare(
-    "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)"
+    "INSERT INTO sys_users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)"
   ).run("notebook_test_user", hash, "student", new Date().toISOString()).lastInsertRowid as number;
 });
 

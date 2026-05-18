@@ -103,7 +103,7 @@ registerTool("create_quiz", {
       questions = getDatabase().prepare(`
         SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
                q.options, q.knowledge_point_id, q.knowledge_point_ids
-        FROM questions q
+        FROM sys_questions q
         WHERE (q.knowledge_point_id IN (${placeholders}) 
                OR q.knowledge_point_ids LIKE '%' || ? || '%')
         AND q.status = 'published'

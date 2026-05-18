@@ -22,7 +22,7 @@ export function initAuthDb(database: Database.Database): void {
   db = database;
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS sys_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
@@ -51,18 +51,18 @@ export function createUser(
 ): number {
   const hash = hashPassword(password);
   const result = db.prepare(
-    `INSERT INTO users (username, password_hash, role, created_at)
+    `INSERT INTO sys_users (username, password_hash, role, created_at)
      VALUES (?, ?, ?, ?)`,
   ).run(username, hash, role, new Date().toISOString());
   return result.lastInsertRowid as number;
 }
 
 export function getUserById(id: number): UserRow | undefined {
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
+  return db.prepare("SELECT * FROM sys_users WHERE id = ?").get(id) as UserRow | undefined;
 }
 
 export function getUserByUsername(username: string): UserRow | undefined {
-  return db.prepare("SELECT * FROM users WHERE username = ?").get(username) as UserRow | undefined;
+  return db.prepare("SELECT * FROM sys_users WHERE username = ?").get(username) as UserRow | undefined;
 }
 
 export function createDefaultAdmin(): void {
@@ -71,7 +71,7 @@ export function createDefaultAdmin(): void {
     process.exit(1);
   }
 
-  const count = (db.prepare("SELECT COUNT(*) as cnt FROM users").get() as { cnt: number }).cnt;
+  const count = (db.prepare("SELECT COUNT(*) as cnt FROM sys_users").get() as { cnt: number }).cnt;
   if (count === 0) {
     createUser(ADMIN_USERNAME, ADMIN_PASSWORD, "admin");
     logger.info({ username: ADMIN_USERNAME }, "Default admin user created");
@@ -80,19 +80,19 @@ export function createDefaultAdmin(): void {
 
 export function updateActiveSession(userId: number, sessionId: string): void {
   db.prepare(
-    `UPDATE users SET active_session_id = ?, last_active = ? WHERE id = ?`,
+    `UPDATE sys_users SET active_session_id = ?, last_active = ? WHERE id = ?`,
   ).run(sessionId, new Date().toISOString(), userId);
 }
 
 export function clearActiveSession(userId: number): void {
   db.prepare(
-    `UPDATE users SET active_session_id = NULL WHERE id = ?`,
+    `UPDATE sys_users SET active_session_id = NULL WHERE id = ?`,
   ).run(userId);
 }
 
 export function getUserBySessionId(sessionId: string): UserRow | undefined {
   return db.prepare(
-    "SELECT * FROM users WHERE active_session_id = ?",
+    "SELECT * FROM sys_users WHERE active_session_id = ?",
   ).get(sessionId) as UserRow | undefined;
 }
 
@@ -109,20 +109,20 @@ export function getAllUsers(): (UserRow & {
       COALESCE(qa.total_answers, 0) as total_answers,
       COALESCE(qa.correct_answers, 0) as correct_answers,
       COALESCE(wq.active_wrong, 0) as active_wrong
-    FROM users u
+    FROM sys_users u
     LEFT JOIN (
-      SELECT user_id, COUNT(*) as quiz_count FROM quiz_sessions GROUP BY user_id
+      SELECT user_id, COUNT(*) as quiz_count FROM user_quizsessions GROUP BY user_id
     ) qs ON u.id = qs.user_id
     LEFT JOIN (
       SELECT qs2.user_id, COUNT(*) as total_answers,
         COALESCE(SUM(qa2.is_correct), 0) as correct_answers
       FROM user_quizbook qa2
-      JOIN quiz_sessions qs2 ON qa2.quiz_session_id = qs2.id
+      JOIN user_quizsessions qs2 ON qa2.quiz_session_id = qs2.id
       GROUP BY qs2.user_id
     ) qa ON u.id = qa.user_id
     LEFT JOIN (
       SELECT user_id, COUNT(*) as active_wrong
-      FROM wrong_questions WHERE mastered = 0 GROUP BY user_id
+      FROM user_wrongquestions WHERE mastered = 0 GROUP BY user_id
     ) wq ON u.id = wq.user_id
     ORDER BY u.created_at
   `).all() as (UserRow & {
@@ -142,7 +142,7 @@ export function searchUsers(search?: string, page = 1, limit = 20): {
   const params = like ? [like, like] : [];
 
   const totalRow = db.prepare(
-    `SELECT COUNT(*) as cnt FROM users u ${where}`,
+    `SELECT COUNT(*) as cnt FROM sys_users u ${where}`,
   ).get(...params) as { cnt: number };
 
   const users = db.prepare(`
@@ -151,14 +151,14 @@ export function searchUsers(search?: string, page = 1, limit = 20): {
       COALESCE(qa.total_answers, 0) as total_answers,
       COALESCE(qa.correct_answers, 0) as correct_answers,
       COALESCE(wq.active_wrong, 0) as active_wrong
-    FROM users u
-    LEFT JOIN (SELECT user_id, COUNT(*) as quiz_count FROM quiz_sessions GROUP BY user_id) qs ON u.id = qs.user_id
+    FROM sys_users u
+    LEFT JOIN (SELECT user_id, COUNT(*) as quiz_count FROM user_quizsessions GROUP BY user_id) qs ON u.id = qs.user_id
     LEFT JOIN (
       SELECT qs2.user_id, COUNT(*) as total_answers, COALESCE(SUM(qa2.is_correct), 0) as correct_answers
-      FROM user_quizbook qa2 JOIN quiz_sessions qs2 ON qa2.quiz_session_id = qs2.id GROUP BY qs2.user_id
+      FROM user_quizbook qa2 JOIN user_quizsessions qs2 ON qa2.quiz_session_id = qs2.id GROUP BY qs2.user_id
     ) qa ON u.id = qa.user_id
     LEFT JOIN (
-      SELECT user_id, COUNT(*) as active_wrong FROM wrong_questions WHERE mastered = 0 GROUP BY user_id
+      SELECT user_id, COUNT(*) as active_wrong FROM user_wrongquestions WHERE mastered = 0 GROUP BY user_id
     ) wq ON u.id = wq.user_id
     ${where}
     ORDER BY u.created_at DESC
@@ -172,7 +172,7 @@ export function searchUsers(search?: string, page = 1, limit = 20): {
 
 export function resetUserPassword(userId: number, newHash: string): boolean {
   const result = db.prepare(
-    "UPDATE users SET password_hash = ?, active_session_id = NULL WHERE id = ?",
+    "UPDATE sys_users SET password_hash = ?, active_session_id = NULL WHERE id = ?",
   ).run(newHash, userId);
   return result.changes > 0;
 }

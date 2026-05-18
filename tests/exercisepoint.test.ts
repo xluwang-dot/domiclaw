@@ -26,7 +26,7 @@ describe("knowledge_points — exercise_point_names field", () => {
     const kpId = addKnowledgePoint(subjId, "Test KP", "content");
 
     const row = testDb.prepare(
-      "SELECT exercise_point_names FROM knowledge_points WHERE id = ?"
+      "SELECT exercise_point_names FROM sys_knowledgepoints WHERE id = ?"
     ).get(kpId) as { exercise_point_names: string | null };
 
     expect(row.exercise_point_names).toBeNull();
@@ -36,7 +36,7 @@ describe("knowledge_points — exercise_point_names field", () => {
     const kpId = addKnowledgePoint(subjId, "Test KP", "content");
 
     testDb.prepare(
-      "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+      "UPDATE sys_knowledgepoints SET exercise_point_names = ? WHERE id = ?"
     ).run('["概念辨析", "计算应用"]', kpId);
 
     const kp = getKnowledgePointById(kpId);
@@ -48,7 +48,7 @@ describe("knowledge_points — exercise_point_names field", () => {
     const kpId = addKnowledgePoint(subjId, "Test KP", "content");
 
     testDb.prepare(
-      "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+      "UPDATE sys_knowledgepoints SET exercise_point_names = ? WHERE id = ?"
     ).run('[]', kpId);
 
     const kp = getKnowledgePointById(kpId);
@@ -58,7 +58,7 @@ describe("knowledge_points — exercise_point_names field", () => {
   it("should be returned by searchKnowledgePoints", () => {
     const kpId = addKnowledgePoint(subjId, "Search KP", "content");
     testDb.prepare(
-      "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+      "UPDATE sys_knowledgepoints SET exercise_point_names = ? WHERE id = ?"
     ).run('["计算"]', kpId);
 
     const results = searchKnowledgePoints("Search KP");

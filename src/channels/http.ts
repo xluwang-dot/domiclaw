@@ -1087,7 +1087,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
             // Query database for exact match
             const db = getDatabase();
             const exactMatch = db.prepare(
-              "SELECT id FROM knowledge_points WHERE subject_id = ? AND title = ? AND level_type = ?"
+              "SELECT id FROM sys_knowledgepoints WHERE subject_id = ? AND title = ? AND level_type = ?"
             ).get(subjectId, parentTitle, parentLevelType) as { id: number } | undefined;
             parentId = exactMatch?.id || possibleParents[0];
           }
@@ -1296,7 +1296,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           let knowledgePointId2: number | null = null;
           if (kps && kps.length > 0) {
             const kpRow2 = getDatabase().prepare(
-              "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1 LIMIT 1"
+              "SELECT id FROM sys_knowledgepoints WHERE title = ? AND subject_id = 1 LIMIT 1"
             ).get(kps[0]) as { id: number } | undefined;
             knowledgePointId2 = kpRow2?.id || null;
           }
@@ -1317,13 +1317,13 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
             // 将考点名写入知识点的 exercise_point_names 字段
             for (const kpName of kpNames) {
               const kp = getDatabase().prepare(
-                "SELECT id, exercise_point_names FROM knowledge_points WHERE title = ? AND subject_id = 1 LIMIT 1"
+                "SELECT id, exercise_point_names FROM sys_knowledgepoints WHERE title = ? AND subject_id = 1 LIMIT 1"
               ).get(kpName) as { id: number; exercise_point_names: string | null } | undefined;
               if (kp) {
                 const existing: string[] = kp.exercise_point_names ? JSON.parse(kp.exercise_point_names) : [];
                 const merged = [...new Set([...existing, ...epNames])];
                 getDatabase().prepare(
-                  "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+                  "UPDATE sys_knowledgepoints SET exercise_point_names = ? WHERE id = ?"
                 ).run(JSON.stringify(merged), kp.id);
               }
             }
@@ -1405,7 +1405,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         let knowledgePointId: number | null = null;
         if (kps && kps.length > 0) {
           const kpRow = getDatabase().prepare(
-            "SELECT id FROM knowledge_points WHERE title = ? AND subject_id = 1 LIMIT 1"
+            "SELECT id FROM sys_knowledgepoints WHERE title = ? AND subject_id = 1 LIMIT 1"
           ).get(kps[0]) as { id: number } | undefined;
           knowledgePointId = kpRow?.id || null;
         }
@@ -1428,13 +1428,13 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         if (questionId && kpNames.length > 0 && epNames.length > 0) {
           for (const kpName of kpNames) {
             const kp = getDatabase().prepare(
-              "SELECT id, exercise_point_names FROM knowledge_points WHERE title = ? AND subject_id = 1 LIMIT 1"
+              "SELECT id, exercise_point_names FROM sys_knowledgepoints WHERE title = ? AND subject_id = 1 LIMIT 1"
             ).get(kpName) as { id: number; exercise_point_names: string | null } | undefined;
             if (kp) {
               const existing: string[] = kp.exercise_point_names ? JSON.parse(kp.exercise_point_names) : [];
               const merged = [...new Set([...existing, ...epNames])];
               getDatabase().prepare(
-                "UPDATE knowledge_points SET exercise_point_names = ? WHERE id = ?"
+                "UPDATE sys_knowledgepoints SET exercise_point_names = ? WHERE id = ?"
               ).run(JSON.stringify(merged), kp.id);
             }
           }
