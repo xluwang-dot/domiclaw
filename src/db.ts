@@ -60,7 +60,7 @@ export function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_kp_subject_level ON knowledge_points(subject_id, level_type);
     CREATE INDEX IF NOT EXISTS idx_kp_parent_sort ON knowledge_points(parent_id, sort_order);
 
-    CREATE TABLE IF NOT EXISTS questions (
+    CREATE TABLE IF NOT EXISTS sys_questions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       knowledge_point_id INTEGER,
       knowledge_point_ids TEXT,
@@ -102,7 +102,7 @@ export function createSchema(database: Database.Database): void {
       error_reason TEXT,
       answered_at TEXT NOT NULL,
       FOREIGN KEY (quiz_session_id) REFERENCES quiz_sessions(id),
-      FOREIGN KEY (question_id) REFERENCES questions(id)
+      FOREIGN KEY (question_id) REFERENCES sys_questions(id)
     );
 
     CREATE TABLE IF NOT EXISTS wrong_questions (
@@ -117,7 +117,7 @@ export function createSchema(database: Database.Database): void {
       next_review_at TEXT NOT NULL,
       review_interval_days INTEGER DEFAULT 1,
       mastered INTEGER DEFAULT 0,
-      FOREIGN KEY (question_id) REFERENCES questions(id)
+      FOREIGN KEY (question_id) REFERENCES sys_questions(id)
     );
     CREATE INDEX IF NOT EXISTS idx_wq_next_review ON wrong_questions(next_review_at);
     CREATE INDEX IF NOT EXISTS idx_wq_user ON wrong_questions(user_id);
@@ -323,7 +323,7 @@ export function initDatabase(): void {
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
-  try { db.exec("CREATE INDEX IF NOT EXISTS idx_questions_user ON questions(user_id)"); } catch { /* ok */ }
+  try { db.exec("CREATE INDEX IF NOT EXISTS idx_questions_user ON sys_questions(user_id)"); } catch { /* ok */ }
   try { db.exec("CREATE INDEX IF NOT EXISTS idx_kp_parent ON knowledge_points(parent_id)"); } catch { /* ok */ }
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_parent_title ON knowledge_points(parent_id, title) WHERE parent_id IS NOT NULL"); } catch { /* ok */ }
   try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_kp_alias ON knowledge_points(subject_id, alias) WHERE alias IS NOT NULL"); } catch { /* ok */ }
@@ -332,6 +332,14 @@ export function initDatabase(): void {
 
   // Drop exam_papers table (removed in T056)
   try { db.exec("DROP TABLE IF EXISTS exam_papers"); } catch { /* ok */ }
+
+  // Rename questions → sys_questions (T053)
+  try {
+    const hasOldQuestions = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='questions'").get();
+    if (hasOldQuestions) {
+      db.exec("ALTER TABLE questions RENAME TO sys_questions");
+    }
+  } catch { /* already migrated — skip */ }
 
   // Rename user_quizbook → user_quizbook + add new columns
   try {
@@ -655,7 +663,7 @@ export function addQuestion(
   knowledgePointIds?: string | null,
 ): number {
   const result = db.prepare(
-    `INSERT INTO questions (knowledge_point_id, knowledge_point_ids,
+    `INSERT INTO sys_questions (knowledge_point_id, knowledge_point_ids,
        question_text, answer, explanation, difficulty, question_type, options, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(knowledgePointId, knowledgePointIds || null, questionText, answer,
@@ -680,7 +688,7 @@ export function getQuestionsBySubject(subjectId: number, limit = 50): QuestionRo
   return db.prepare(
     `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
             q.options, q.knowledge_point_id, q.knowledge_point_ids
-     FROM questions q
+     FROM sys_questions q
      JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
      WHERE kp.subject_id = ? AND q.status = 'published'
      LIMIT 500`,
@@ -691,7 +699,7 @@ export function getQuestionsByKnowledgePoint(knowledgePointId: number): Question
   return db.prepare(
     `SELECT id, question_text, answer, explanation, difficulty, question_type,
             options, knowledge_point_id, knowledge_point_ids
-     FROM questions WHERE knowledge_point_id = ? AND status = 'published'`,
+     FROM sys_questions WHERE knowledge_point_id = ? AND status = 'published'`,
   ).all(knowledgePointId) as QuestionRow[];
 }
 
@@ -720,14 +728,14 @@ export function getQuestionsForKpQuiz(
 }
 
 export function updateQuestionExplanation(id: number, explanation: string): void {
-  db.prepare("UPDATE questions SET explanation = ? WHERE id = ?").run(explanation, id);
+  db.prepare("UPDATE sys_questions SET explanation = ? WHERE id = ?").run(explanation, id);
 }
 
 export function getQuestionById(id: number): QuestionRow | undefined {
   return db.prepare(
     `SELECT id, question_text, answer, explanation, difficulty, question_type,
             options, knowledge_point_id
-     FROM questions WHERE id = ?`,
+     FROM sys_questions WHERE id = ?`,
   ).get(id) as QuestionRow | undefined;
 }
 
@@ -737,9 +745,9 @@ export function getQuestionById(id: number): QuestionRow | undefined {
  * @param isCorrect 是否回答正确
  */
 export function updateQuestionStats(questionId: number, isCorrect: boolean): void {
-  db.prepare("UPDATE questions SET times_answered = times_answered + 1 WHERE id = ?").run(questionId);
+  db.prepare("UPDATE sys_questions SET times_answered = times_answered + 1 WHERE id = ?").run(questionId);
   if (isCorrect) {
-    db.prepare("UPDATE questions SET times_correct = times_correct + 1 WHERE id = ?").run(questionId);
+    db.prepare("UPDATE sys_questions SET times_correct = times_correct + 1 WHERE id = ?").run(questionId);
   }
 }
 
@@ -753,7 +761,7 @@ export function updateQuestionStats(questionId: number, isCorrect: boolean): voi
  */
 export function getQuestionDifficulty(questionId: number): number {
   const row = db.prepare(
-    `SELECT difficulty, times_answered, times_correct FROM questions WHERE id = ?`
+    `SELECT difficulty, times_answered, times_correct FROM sys_questions WHERE id = ?`
   ).get(questionId) as { difficulty: number; times_answered: number; times_correct: number } | undefined;
 
   if (!row) return 1;
@@ -779,13 +787,13 @@ export function updateQuestion(id: number, fields: Record<string, unknown>): boo
   if (sets.length === 0) return false;
   vals.push(id);
   const result = db.prepare(
-    `UPDATE questions SET ${sets.join(", ")} WHERE id = ?`,
+    `UPDATE sys_questions SET ${sets.join(", ")} WHERE id = ?`,
   ).run(...vals);
   return result.changes > 0;
 }
 
 export function deleteQuestion(id: number): boolean {
-  const result = db.prepare("DELETE FROM questions WHERE id = ?").run(id);
+  const result = db.prepare("DELETE FROM sys_questions WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
@@ -802,7 +810,7 @@ export function addUserQuestion(
   kpId?: number,
 ): number {
   const result = db.prepare(
-    `INSERT INTO questions (user_id, knowledge_point_id, question_text, answer,
+    `INSERT INTO sys_questions (user_id, knowledge_point_id, question_text, answer,
        explanation, difficulty, question_type, options, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
   ).run(userId, kpId || null, questionText, answer,
@@ -836,13 +844,13 @@ export function getUserQuestions(
   const where = conditions.join(" AND ");
 
   const totalRow = db.prepare(
-    `SELECT COUNT(*) as cnt FROM questions q WHERE ${where}`,
+    `SELECT COUNT(*) as cnt FROM sys_questions q WHERE ${where}`,
   ).get(...params) as { cnt: number };
 
   const questions = db.prepare(
     `    SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
             q.options, q.knowledge_point_id, q.status
-     FROM questions q
+     FROM sys_questions q
      WHERE ${where}
      ORDER BY q.created_at DESC
      LIMIT ? OFFSET ?`,
@@ -869,14 +877,14 @@ export function updateUserQuestion(
   if (sets.length === 0) return false;
   vals.push(id, userId);
   const result = db.prepare(
-    `UPDATE questions SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`,
+    `UPDATE sys_questions SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`,
   ).run(...vals);
   return result.changes > 0;
 }
 
 export function deleteUserQuestion(id: number, userId: number): boolean {
   const result = db.prepare(
-    "DELETE FROM questions WHERE id = ? AND user_id = ?",
+    "DELETE FROM sys_questions WHERE id = ? AND user_id = ?",
   ).run(id, userId);
   return result.changes > 0;
 }
@@ -894,7 +902,7 @@ export function bulkImportUserQuestions(
   }[],
 ): { imported: number } {
   const stmt = db.prepare(
-    `INSERT INTO questions (user_id, knowledge_point_id, question_text, answer,
+    `INSERT INTO sys_questions (user_id, knowledge_point_id, question_text, answer,
        explanation, difficulty, question_type, options, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
   );
@@ -963,13 +971,13 @@ export function getQuestionsAdmin(opts?: {
   const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
 
   const totalRow = db.prepare(
-    `SELECT COUNT(*) as cnt FROM questions q ${where}`,
+    `SELECT COUNT(*) as cnt FROM sys_questions q ${where}`,
   ).get(...params) as { cnt: number };
 
   const questions = db.prepare(
     `SELECT q.id, q.question_text, q.answer, q.explanation, q.difficulty, q.question_type,
             q.options, q.knowledge_point_id, q.status, q.user_id
-     FROM questions q ${where}
+     FROM sys_questions q ${where}
      ORDER BY q.created_at DESC
      LIMIT ? OFFSET ?`,
   ).all(...params, limit, (page - 1) * limit) as QuestionRow[];
@@ -978,10 +986,10 @@ export function getQuestionsAdmin(opts?: {
 }
 
 export function toggleQuestionStatus(id: number): string | null {
-  const row = db.prepare("SELECT status FROM questions WHERE id = ?").get(id) as { status: string } | undefined;
+  const row = db.prepare("SELECT status FROM sys_questions WHERE id = ?").get(id) as { status: string } | undefined;
   if (!row) return null;
   const next = row.status === "published" ? "draft" : "published";
-  db.prepare("UPDATE questions SET status = ? WHERE id = ?").run(next, id);
+  db.prepare("UPDATE sys_questions SET status = ? WHERE id = ?").run(next, id);
   return next;
 }
 
@@ -992,7 +1000,7 @@ export function findDuplicateQuestions(text: string): { id: number; question_tex
   const patterns = words.slice(0, 3).map(w => `%${w}%`);
   const placeholders = patterns.map(() => "question_text LIKE ?").join(" OR ");
   return db.prepare(
-    `SELECT id, question_text FROM questions WHERE ${placeholders} LIMIT 10`,
+    `SELECT id, question_text FROM sys_questions WHERE ${placeholders} LIMIT 10`,
   ).all(...patterns) as { id: number; question_text: string }[];
 }
 
@@ -1004,7 +1012,7 @@ export function bulkImportQuestionsAdmin(
   }[],
 ): { imported: number } {
   const stmt = db.prepare(
-    `INSERT INTO questions (user_id, knowledge_point_id, question_text, answer,
+    `INSERT INTO sys_questions (user_id, knowledge_point_id, question_text, answer,
        explanation, difficulty, question_type, options, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
@@ -1079,7 +1087,7 @@ export function deleteUserCascade(userId: number): void {
     db.prepare("DELETE FROM scheduled_tasks WHERE user_id = ?").run(String(userId));
     db.prepare("DELETE FROM session_context WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM user_notebook WHERE user_id = ?").run(userId);
-    db.prepare("DELETE FROM questions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM sys_questions WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   });
   del();
@@ -1194,7 +1202,7 @@ export function getDueReviews(userId: number, subjectId?: number): WrongQuestion
            q.question_type, q.options, wq.wrong_count, wq.consecutive_correct,
            wq.last_reviewed_at, wq.next_review_at, wq.review_interval_days, wq.mastered
     FROM wrong_questions wq
-    JOIN questions q ON wq.question_id = q.id
+    JOIN sys_questions q ON wq.question_id = q.id
     WHERE wq.user_id = ? AND wq.next_review_at <= ? AND wq.mastered = 0`;
   if (subjectId) {
     query += ` AND q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`;
@@ -1252,7 +1260,7 @@ export function getWrongQuestionsBySubject(
     return db.prepare(
       `SELECT q.question_text, q.answer, wq.wrong_count, wq.mastered, s.name as subject_name
        FROM wrong_questions wq
-       JOIN questions q ON wq.question_id = q.id
+       JOIN sys_questions q ON wq.question_id = q.id
        LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
        LEFT JOIN subjects s ON kp.subject_id = s.id
        WHERE wq.user_id = ? AND s.id = ?
@@ -1264,7 +1272,7 @@ export function getWrongQuestionsBySubject(
   return db.prepare(
     `SELECT q.question_text, q.answer, wq.wrong_count, wq.mastered, COALESCE(s.name, 'Unknown') as subject_name
      FROM wrong_questions wq
-     JOIN questions q ON wq.question_id = q.id
+     JOIN sys_questions q ON wq.question_id = q.id
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
      LEFT JOIN subjects s ON kp.subject_id = s.id
      WHERE wq.user_id = ?
@@ -1303,7 +1311,7 @@ export function getStudyStats(userId: number, subjectId?: number): {
        COALESCE(SUM(CASE WHEN wq.mastered = 1 THEN 1 ELSE 0 END), 0) as mastered,
        COALESCE(SUM(CASE WHEN wq.next_review_at <= ? AND wq.mastered = 0 THEN 1 ELSE 0 END), 0) as due
      FROM wrong_questions wq
-     JOIN questions q ON wq.question_id = q.id
+     JOIN sys_questions q ON wq.question_id = q.id
      WHERE wq.user_id = ?` +
     (subjectId
       ? ` AND q.knowledge_point_id IN (SELECT id FROM knowledge_points WHERE subject_id = ?)`
@@ -1438,7 +1446,7 @@ export function getWeakAreas(userId: number): string[] {
   const rows = db.prepare(
     `SELECT s.name as subject, COUNT(*) as cnt
      FROM wrong_questions wq
-     JOIN questions q ON wq.question_id = q.id
+     JOIN sys_questions q ON wq.question_id = q.id
      LEFT JOIN knowledge_points kp ON q.knowledge_point_id = kp.id
      LEFT JOIN subjects s ON kp.subject_id = s.id
      WHERE wq.user_id = ? AND wq.mastered = 0

@@ -22,7 +22,7 @@ function seedQuestions(
   const kpId = addKnowledgePoint(subjectId, "TestKP", "test");
   const now = new Date().toISOString();
   const insert = db.prepare(
-    `INSERT INTO questions (knowledge_point_id, question_text, answer, difficulty, question_type, status, created_at)
+    `INSERT INTO sys_questions (knowledge_point_id, question_text, answer, difficulty, question_type, status, created_at)
      VALUES (?, ?, ?, ?, 'short_answer', 'published', ?)`
   );
 

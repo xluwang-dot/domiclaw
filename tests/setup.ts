@@ -83,7 +83,7 @@ export function insertTestQuestion(
 ): number {
   const result = db
     .prepare(
-      `INSERT INTO questions (knowledge_point_id, question_text, answer, difficulty, question_type, status, created_at)
+      `INSERT INTO sys_questions (knowledge_point_id, question_text, answer, difficulty, question_type, status, created_at)
        VALUES (?, ?, ?, ?, 'short_answer', 'published', ?)`,
     )
     .run(kpId, questionText, answer, difficulty, new Date().toISOString());

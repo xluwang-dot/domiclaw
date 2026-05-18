@@ -53,7 +53,7 @@ describe("create_quiz with test_level", () => {
     const kpId = addKnowledgePoint(subjId, "LevelTestKP", "test");
     const now = new Date().toISOString();
     const insert = testDb.prepare(
-      `INSERT INTO questions (knowledge_point_id, question_text, answer, difficulty, question_type, status, created_at)
+      `INSERT INTO sys_questions (knowledge_point_id, question_text, answer, difficulty, question_type, status, created_at)
        VALUES (?, ?, ?, ?, 'short_answer', 'published', ?)`
     );
 

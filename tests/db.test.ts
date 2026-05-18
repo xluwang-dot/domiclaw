@@ -119,7 +119,7 @@ describe("difficulty tracking — field migration", () => {
     const qId = createTestQuestion(subjId, 3);
 
     const row = testDb.prepare(
-      "SELECT times_answered, times_correct FROM questions WHERE id = ?"
+      "SELECT times_answered, times_correct FROM sys_questions WHERE id = ?"
     ).get(qId) as { times_answered: number; times_correct: number };
 
     expect(row.times_answered).toBe(0);
@@ -133,7 +133,7 @@ describe("difficulty tracking — updateQuestionStats", () => {
     const qId = createTestQuestion(subjId, 3);
 
     updateQuestionStats(qId, true);
-    const row = testDb.prepare("SELECT times_answered FROM questions WHERE id = ?")
+    const row = testDb.prepare("SELECT times_answered FROM sys_questions WHERE id = ?")
       .get(qId) as { times_answered: number };
     expect(row.times_answered).toBe(1);
   });
@@ -143,7 +143,7 @@ describe("difficulty tracking — updateQuestionStats", () => {
     const qId = createTestQuestion(subjId, 3);
 
     updateQuestionStats(qId, true);
-    const row = testDb.prepare("SELECT times_correct FROM questions WHERE id = ?")
+    const row = testDb.prepare("SELECT times_correct FROM sys_questions WHERE id = ?")
       .get(qId) as { times_correct: number };
     expect(row.times_correct).toBe(1);
   });
@@ -153,7 +153,7 @@ describe("difficulty tracking — updateQuestionStats", () => {
     const qId = createTestQuestion(subjId, 3);
 
     updateQuestionStats(qId, false);
-    const row = testDb.prepare("SELECT times_correct FROM questions WHERE id = ?")
+    const row = testDb.prepare("SELECT times_correct FROM sys_questions WHERE id = ?")
       .get(qId) as { times_correct: number };
     expect(row.times_correct).toBe(0);
   });
@@ -166,7 +166,7 @@ describe("difficulty tracking — updateQuestionStats", () => {
     for (let i = 0; i < 2; i++) updateQuestionStats(qId, false);
 
     const row = testDb.prepare(
-      "SELECT times_answered, times_correct FROM questions WHERE id = ?"
+      "SELECT times_answered, times_correct FROM sys_questions WHERE id = ?"
     ).get(qId) as { times_answered: number; times_correct: number };
 
     expect(row.times_answered).toBe(5);

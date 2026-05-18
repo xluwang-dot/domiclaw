@@ -1307,7 +1307,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           addQuestion(knowledgePointId2, questionText, item.answer as string, questionType,
             explanation, difficulty, options, knowledgePointIds);
           const qId = getDatabase().prepare(
-            "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
+            "SELECT id FROM sys_questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
           ).get(questionText) as { id: number };
           imported++;
 
@@ -1418,7 +1418,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         addQuestion(knowledgePointId, questionText, item.answer as string, questionType,
           explanation, difficulty, optionsRaw, knowledgePointIds);
         const questionId = getDatabase().prepare(
-          "SELECT id FROM questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
+          "SELECT id FROM sys_questions WHERE question_text = ? ORDER BY id DESC LIMIT 1"
         ).get(questionText) as { id: number };
         imported++;
 
