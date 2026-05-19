@@ -139,13 +139,17 @@ Rules:
     const parsed = JSON.parse(jsonStr) as { intent: string; params: Record<string, unknown>; operation: { action: string; params: Record<string, unknown> } };
     if (!parsed.intent || !parsed.operation?.action) return null;
     const queryResult: QueryResult = { intent: parsed.intent, params: parsed.params || {}, operation: parsed.operation };
-    try {
-      insertCachedQuery(
-        userInput, queryResult.intent,
-        JSON.stringify(queryResult.params),
-        JSON.stringify(queryResult.operation),
-      );
-    } catch { /* ignore */ }
+    // create_quiz 走 Agent 路径（__CREATE_QUIZ__ 指令），不缓存到 AQC 缓存
+    // 缓存中的 create_quiz 条目会被 routeViaCache 尝试 executeOperation 导致失败
+    if (queryResult.intent !== "create_quiz") {
+      try {
+        insertCachedQuery(
+          userInput, queryResult.intent,
+          JSON.stringify(queryResult.params),
+          JSON.stringify(queryResult.operation),
+        );
+      } catch { /* ignore */ }
+    }
     return queryResult;
   } catch {
     return null;
