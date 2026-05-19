@@ -62,11 +62,26 @@ export async function buildSystemPrompt(
   const currentQ = getCurrentQuestion(userId);
   if (currentQ) {
     lines.push("[Current Question]");
-    lines.push(`题目：${currentQ.questionText}`);
+    if (currentQ.sessionId) {
+      lines.push(`当前测验会话 ID：${currentQ.sessionId}`);
+    }
+    if (currentQ.questions && currentQ.questions.length > 1) {
+      lines.push(`当前测验共 ${currentQ.questions.length} 题：`);
+      for (const q of currentQ.questions) {
+        const idx = currentQ.questions.indexOf(q) + 1;
+        const opts = q.options ? ` (有选项)` : "";
+        lines.push(`  第${idx}题 (ID:${q.id}) [${q.type}]${opts}: ${q.text.substring(0, 120)}`);
+      }
+    } else {
+      lines.push(`题目：${currentQ.questionText}`);
+    }
     if (currentQ.subQuestions && currentQ.subQuestions.length > 0) {
       lines.push(`子问题：${currentQ.subQuestions.join(" | ")}`);
     }
-    lines.push(`已完成：${currentQ.progress.solvedSubIndices.map(i => `第${i + 1}问`).join(", ") || "暂无"}`);
+    const solved = currentQ.progress.solvedSubIndices;
+    if (solved.length > 0) {
+      lines.push(`已完成：${solved.map(i => `第${i + 1}问`).join(", ")}`);
+    }
     lines.push(`当前正在做：第 ${currentQ.progress.currentSubIndex + 1} 问`);
     lines.push("");
   }
@@ -107,13 +122,19 @@ export async function buildSystemPrompt(
   lines.push("  - 当前讲解步骤");
   lines.push("  - 用户是否已经回答了当前步骤的问题");
   lines.push("");
-  lines.push("## 5. 冲突解决规则（必须遵守）");
-  lines.push("当本文件中的多条规则互相冲突时，按以下优先级执行：");
-  lines.push("1. 纠错与重试规则（用户实时反馈 > 预设规则）");
-  lines.push("2. 出题规则");
-  lines.push("3. 讲解规则");
-  lines.push("4. AGENT.md 中的常规指令");
-  lines.push("");
+lines.push("## 5. 出题展示规则（必须遵守）");
+lines.push("- 调用 create_quiz 工具后，你必须在回复中逐题列出完整的题目内容（包括题目文本和所有选项），禁止只输出题型概要或考点表格。");
+lines.push("- 回复格式要求：每个题目独占一个段落，以\"**第N题**\"开头，完整显示题目文字和选项，让用户能看到完整的题目内容才能作答。");
+lines.push("- 如果题目数量超过 5 题，你可以先展示所有题目再附总结，但不允许省略任何题目的完整内容。");
+lines.push("");
+lines.push("## 6. 冲突解决规则（必须遵守）");
+lines.push("当本文件中的多条规则互相冲突时，按以下优先级执行：");
+lines.push("1. 纠错与重试规则（用户实时反馈 > 预设规则）");
+lines.push("2. 出题规则");
+lines.push("3. 出题展示规则");
+lines.push("4. 讲解规则");
+lines.push("5. AGENT.md 中的常规指令");
+lines.push("");
   return { systemPrompt: lines.join("\n"), ragCount };
 }
 

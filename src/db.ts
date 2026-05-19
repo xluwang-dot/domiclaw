@@ -1196,6 +1196,30 @@ export function finishQuizSession(sessionId: number): { total: number; correct: 
   return stats;
 }
 
+export function getQuizSessionById(sessionId: number): {
+  id: number; subject_id: number; user_id: number;
+  started_at: string; finished_at: string | null;
+  total_questions: number; correct_count: number;
+} | undefined {
+  return db.prepare(
+    "SELECT * FROM user_quizsessions WHERE id = ?",
+  ).get(sessionId) as any;
+}
+
+export function getQuizSessionQuestions(sessionId: number): {
+  question_id: number; question_text: string; question_type: string;
+  options: string | null; student_answer: string | null; is_correct: number | null;
+}[] {
+  return db.prepare(`
+    SELECT qb.question_id, q.question_text, q.question_type, q.options,
+           qb.student_answer, qb.is_correct
+    FROM user_quizbook qb
+    JOIN sys_questions q ON q.id = qb.question_id
+    WHERE qb.quiz_session_id = ?
+    ORDER BY qb.answered_at ASC
+  `).all(sessionId) as any[];
+}
+
 export function getActiveQuizSession(userId: number): {
   id: number; subject_id: number; started_at: string;
 } | undefined {

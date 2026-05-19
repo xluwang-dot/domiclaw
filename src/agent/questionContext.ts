@@ -1,6 +1,15 @@
+export interface CurrentQuestionItem {
+  id: number;
+  text: string;
+  type: string;
+  options: string | null;
+}
+
 export interface CurrentQuestion {
   questionId: number;
   questionText: string;
+  sessionId?: number;
+  questions?: CurrentQuestionItem[];
   subQuestions?: string[];
   progress: {
     currentSubIndex: number;

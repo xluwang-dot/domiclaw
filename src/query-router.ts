@@ -45,6 +45,11 @@ export async function routeViaCache(
     const cached = findCachedQuery(userInput, userId);
     if (cached) {
       logger.info({ intent: cached.intent, pattern: cached.pattern }, "[AQC] 缓存命中");
+      if (cached.intent === "create_quiz") {
+        // create_quiz 指令不由 executeOperation 处理，直接从缓存重建 directive
+        logger.info({ params: cached.params_json }, "[AQC] create_quiz 缓存重建");
+        return `__CREATE_QUIZ__:${cached.params_json}`;
+      }
       const result = await executeOperation(userId, JSON.parse(cached.operation_json));
       if (result !== null) return result;
       logger.warn({ cachedId: cached.id }, "[AQC] 缓存执行失败，删除");

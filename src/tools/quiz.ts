@@ -7,6 +7,8 @@ import {
   getQuestionById,
   getQuestionsBySubject,
   getQuizSessionAnswers,
+  getQuizSessionById,
+  getQuizSessionQuestions,
   getSubjectByName,
   getWrongQuestionsBySubject,
   recordQuizAnswer,
@@ -21,7 +23,8 @@ import {
   getQuestionDifficulty,
   getTestLevelConfig,
 } from "../db.js";
-import { setCurrentQuestion } from "../agent/questionContext.js";
+import { setCurrentQuestion, getCurrentQuestion } from "../agent/questionContext.js";
+import { logger } from "../logger.js";
 
 /**
  * 检查学生答案是否正确
@@ -183,6 +186,25 @@ registerTool("create_quiz", {
     }
     const sessionId = createQuizSession(subject.id, ctx.userId);
 
+    setCurrentQuestion(ctx.userId, {
+      questionId: selected.length > 0 ? selected[0].id : 0,
+      questionText: selected.length > 0 ? selected[0].question_text : "",
+      sessionId,
+      questions: selected.map((q: any) => ({
+        id: q.id,
+        text: q.question_text,
+        type: q.question_type,
+        options: q.options,
+      })),
+      progress: {
+        currentSubIndex: 0,
+        solvedSubIndices: [],
+        userAnswers: {},
+      },
+    });
+
+    logger.info({ sessionId, questionCount: selected.length, userId: ctx.userId }, "[CQ] set from create_quiz");
+
     // Return the full quiz with all questions
     let response = `Quiz started! Subject: ${subjectName}, Session ID: ${sessionId}, Questions: ${selected.length}\n\n`;
     for (let i = 0; i < selected.length; i++) {
@@ -190,6 +212,108 @@ registerTool("create_quiz", {
       if (i < selected.length - 1) response += "\n";
     }
     response += `\nUse record_answer with session_id=${sessionId} and the question ID to submit each answer.`;
+
+    return response;
+  },
+});
+
+registerTool("get_quiz_session", {
+  definition: {
+    type: "function",
+    function: {
+      name: "get_quiz_session",
+      description: "获取测验会话的完整信息，包含已回答题目和全部题目列表。用于回顾已创建的测验或讲解特定题目时获取题面",
+      parameters: {
+        type: "object",
+        properties: {
+          session_id: { type: "number", description: "测验会话 ID" },
+        },
+        required: ["session_id"],
+      },
+    },
+  },
+  async execute(args, ctx) {
+    const sessionId = args.session_id as number;
+    const userId = ctx.userId;
+    const session = getQuizSessionById(sessionId);
+    if (!session) return `Session ${sessionId} not found.`;
+
+    const answered = getQuizSessionQuestions(sessionId);
+    const totalFromDb = session.total_questions || 0;
+    const correctCount = session.correct_count || 0;
+
+    let response = `Session ID: ${sessionId}\n`;
+    response += `Started: ${session.started_at}\n`;
+    response += `Status: ${session.finished_at ? "Finished" : "Active"}\n`;
+    if (session.finished_at) response += `Finished: ${session.finished_at}\n`;
+
+    // Try memory first for full question list
+    const currentQ = getCurrentQuestion(userId);
+    if (currentQ?.sessionId === sessionId && currentQ.questions && currentQ.questions.length > 0) {
+      const allQs = currentQ.questions;
+      response += `Total questions: ${allQs.length}\n`;
+      const answeredCount = answered.length;
+      const correctDb = answered.filter((a: any) => a.is_correct === 1).length;
+      response += `Answered: ${answeredCount} / ${allQs.length}\n`;
+      response += `Correct: ${correctDb} / ${answeredCount}\n\n`;
+
+      for (let i = 0; i < allQs.length; i++) {
+        const q = allQs[i];
+        const ans = answered.find((a: any) => a.question_id === q.id);
+        response += `Q${i + 1}/${allQs.length} (ID: ${q.id}) [${q.type}]: ${q.text}\n`;
+        if (q.options) {
+          try {
+            const parsed = JSON.parse(q.options);
+            if (Array.isArray(parsed)) {
+              const letters = "ABCDEFGHIJ";
+              for (let j = 0; j < parsed.length; j++) {
+                response += `  ${letters[j] || j}: ${parsed[j]}\n`;
+              }
+            } else {
+              for (const [k, v] of Object.entries(parsed as Record<string, string>)) {
+                response += `  ${k}: ${v}\n`;
+              }
+            }
+          } catch {
+            response += `  Options: ${q.options}\n`;
+          }
+        }
+        if (ans) {
+          response += `  → Your answer: ${ans.student_answer} (${ans.is_correct ? "Correct" : "Incorrect"})\n`;
+        }
+        response += "\n";
+      }
+    } else if (answered.length > 0) {
+      response += `Total questions: ${totalFromDb > 0 ? totalFromDb : answered.length}\n`;
+      response += `Answered: ${answered.length}\n`;
+      response += `Correct: ${correctCount} / ${answered.length}\n\n`;
+
+      for (const a of answered) {
+        response += `Q (ID: ${a.question_id}) [${a.question_type}]: ${a.question_text?.substring(0, 100)}\n`;
+        if (a.options) {
+          try {
+            const parsed = JSON.parse(a.options);
+            if (Array.isArray(parsed)) {
+              const letters = "ABCDEFGHIJ";
+              for (let j = 0; j < parsed.length; j++) {
+                response += `  ${letters[j] || j}: ${parsed[j]}\n`;
+              }
+            } else {
+              for (const [k, v] of Object.entries(parsed as Record<string, string>)) {
+                response += `  ${k}: ${v}\n`;
+              }
+            }
+          } catch {
+            response += `  Options: ${a.options}\n`;
+          }
+        }
+        response += `  → Your answer: ${a.student_answer} (${a.is_correct ? "Correct" : "Incorrect"})\n\n`;
+      }
+    } else {
+      const sessionInfo = getQuizSessionById(sessionId);
+      response += `Total questions: ${sessionInfo?.total_questions || "N/A"}\n`;
+      response += `No answers recorded yet.\n`;
+    }
 
     return response;
   },
