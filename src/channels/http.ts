@@ -1,12 +1,12 @@
 import express, { Request, Response, NextFunction } from "express";
 import session from "express-session";
-import connectSqlite3 from "connect-sqlite3";
 import http from "http";
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
 
 import { NewMessage } from "../types.js";
+import { createSessionStore } from "../sessionStore.js";
 import { logger } from "../logger.js";
 import { runAgent, AgentOutput } from "../agent.js";
 import { handleCommand } from "../commands.js";
@@ -40,6 +40,8 @@ import {
   getAllKnowledgePoints,
   updateKnowledgePoint,
   deleteKnowledgePoint,
+  generateKPEmbedding,
+  rebuildAllEmbeddings,
   addQuestion,
   updateQuestion,
   deleteQuestion,
@@ -294,12 +296,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
   const app = express();
 
-  // Session store
-  const SqliteStore = connectSqlite3(session);
-  const sessionStore = new SqliteStore({
-    db: "store/sessions.db",
-    dir: ".",
-  }) as session.Store;
+  const sessionStore = createSessionStore();
 
   app.use(express.json({ limit: "10mb" }));
   app.use(
@@ -511,9 +508,12 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       return;
     }
 
+    logger.info({ text, userId }, "[入口] 用户输入");
+
     // AQC layer — try cached/natural-language query first
     const aqcResult = await routeViaCache(text, userId, ASSISTANT_NAME);
     if (aqcResult !== null) {
+      logger.info({ text, replyLen: aqcResult.length }, "[出口] AQC 直接返回，无需 Agent");
       const botMsg: NewMessage = {
         id: `web-aqc-${Date.now()}`,
         sender: ASSISTANT_NAME,
@@ -543,6 +543,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         ? formatMessages(recentMsgs)
         : formatMessages([msg]);
 
+    logger.info({ promptLen: prompt.length }, "[入口] 转发至 Agent");
     runAgent(
       {
         prompt,
@@ -550,6 +551,9 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         userId,
       },
       async (output: AgentOutput) => {
+        if (!output.isPartial && output.result) {
+          logger.info({ resultLen: output.result.length }, "[出口] Agent 返回结果");
+        }
         if (output.isPartial) {
           if (output.toolEvent) {
             pushSse(userId, "tool_event", {
@@ -961,7 +965,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     // Auto-create root knowledge point for this subject (skip if already exists)
     const existingRoot = searchKnowledgePoints(name, id);
     if (!existingRoot.find((k) => k.level_type === "root" && !k.parent_id)) {
-      addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0);
+      const rootId = addKnowledgePoint(id, name, `${name} 学科根节点`, null, "root", 0);
+      generateKPEmbedding(rootId).catch(() => {});
     }
     res.json({ id, name });
   });
@@ -1008,6 +1013,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       (parent_id as number) || null, (level_type as string) || undefined,
       (sort_order as number) || undefined, alias as string | undefined,
     );
+    generateKPEmbedding(id).catch(() => {});
     res.json({ id, title });
   });
 
@@ -1125,6 +1131,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       }
     }
 
+    rebuildAllEmbeddings().catch(() => {});
     res.json({
       created,
       reused,
@@ -1141,6 +1148,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       res.status(404).json({ error: "Knowledge point not found" });
       return;
     }
+    generateKPEmbedding(id).catch(() => {});
     res.json({ ok: true });
   });
 

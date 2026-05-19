@@ -8,6 +8,7 @@ import { nonStreamingApiCall } from "./agent/model.js";
 import {
   MODEL_NAME, MODEL_BASE_URL, MODEL_API_KEY,
 } from "./config.js";
+import { logger } from "./logger.js";
 import {
   findCachedQuery,
   insertCachedQuery,
@@ -43,16 +44,24 @@ export async function routeViaCache(
   if (!skipCache) {
     const cached = findCachedQuery(userInput, userId);
     if (cached) {
+      logger.info({ intent: cached.intent, pattern: cached.pattern }, "[AQC] 缓存命中");
       const result = await executeOperation(userId, JSON.parse(cached.operation_json));
       if (result !== null) return result;
-      // 执行失败，删除损坏的缓存
+      logger.warn({ cachedId: cached.id }, "[AQC] 缓存执行失败，删除");
       deleteCachedQuery(cached.id);
+    } else {
+      logger.info("[AQC] 缓存未命中");
     }
   }
 
   // 2. 意图分类（LLM）
+  logger.info("[AQC] 调用 LLM 进行意图分类");
   const intentResult = await classifyIntent(userInput, userId, assistantName);
-  if (!intentResult || intentResult.intent === "chat") return null;
+  if (!intentResult || intentResult.intent === "chat") {
+    logger.info("[AQC] 意图分类结果为 chat，放行至 Agent");
+    return null;
+  }
+  logger.info({ intent: intentResult.intent }, "[AQC] 意图分类命中");
 
   // 3. 执行操作
   const reply = await executeOperation(userId, intentResult.operation);
@@ -68,6 +77,7 @@ export async function routeViaCache(
     );
   } catch { /* ignore */ }
 
+  logger.info({ intent: intentResult.intent, replyLen: reply.length }, "[AQC] 直接返回");
   return reply;
 }
 

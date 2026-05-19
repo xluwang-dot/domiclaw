@@ -31,6 +31,10 @@ const envConfig = readEnvFile([
   "ADMIN_USERNAME", // 管理员用户名
   "ADMIN_PASSWORD", // 管理员密码（必填）
   "SESSION_SECRET", // 会话加密密钥
+  "VECTOR_SEARCH_ENABLED", // 启用向量语义检索
+  "EMBEDDING_MODEL", // 嵌入模型名称
+  "RAG_TOP_K", // RAG 返回结果数
+  "HF_MIRROR", // HF 镜像地址
 ]);
 
 // ============== 核心配置 ==============
@@ -205,6 +209,15 @@ export const SESSION_SECRET =
   process.env.SESSION_SECRET ||
   envConfig.SESSION_SECRET ||
   crypto.randomBytes(32).toString("hex");
+
+// ============== RAG / 向量检索配置 ==============
+
+export const ragConfig = {
+  vectorSearchEnabled: (process.env.VECTOR_SEARCH_ENABLED || envConfig.VECTOR_SEARCH_ENABLED) === "true",
+  embeddingModel: process.env.EMBEDDING_MODEL || envConfig.EMBEDDING_MODEL || "Xenova/bge-base-zh-v1.5",
+  topK: parseInt(process.env.RAG_TOP_K || envConfig.RAG_TOP_K || "3", 10),
+  hfMirror: process.env.HF_MIRROR || envConfig.HF_MIRROR || "https://hf-mirror.com",
+};
 
 // ============== 触发词配置 ==============
 

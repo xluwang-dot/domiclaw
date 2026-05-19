@@ -6,6 +6,7 @@ import { STORE_DIR } from "./config.js";
 import { logger } from "./logger.js";
 import { initAuthDb } from "./auth.js";
 import { NewMessage } from "./types.js";
+import { generateEmbedding, float32ToBlob, initEmbedder as initEmbedderForKP } from "./rag/embeddings/embeddingService.js";
 
 let db: Database.Database;
 
@@ -49,6 +50,7 @@ export function createSchema(database: Database.Database): void {
       prerequisite_ids TEXT,
       related_ids TEXT,
       exercise_point_names TEXT,
+      embedding BLOB,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(parent_id, title)
@@ -320,6 +322,7 @@ export function initDatabase(): void {
     `ALTER TABLE questions ADD COLUMN times_correct INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE knowledge_points ADD COLUMN prerequisite_ids TEXT`,
     `ALTER TABLE knowledge_points ADD COLUMN related_ids TEXT`,
+    `ALTER TABLE sys_knowledgepoints ADD COLUMN embedding BLOB`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -673,6 +676,41 @@ export function updateKnowledgePointRelations(
 export function deleteKnowledgePoint(id: number): boolean {
   const result = db.prepare("DELETE FROM sys_knowledgepoints WHERE id = ?").run(id);
   return result.changes > 0;
+}
+
+// ============== Embedding generation ==============
+
+export async function generateKPEmbedding(kpId: number): Promise<boolean> {
+  const kp = getKnowledgePointById(kpId);
+  if (!kp) return false;
+  const text = `${kp.title}: ${kp.content || ""}`;
+  try {
+    const vector = await generateEmbedding(text);
+    db.prepare("UPDATE sys_knowledgepoints SET embedding = ? WHERE id = ?")
+      .run(float32ToBlob(vector), kpId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function rebuildAllEmbeddings(): Promise<number> {
+  const rows = db.prepare(
+    `SELECT id, title, content FROM sys_knowledgepoints WHERE embedding IS NULL`,
+  ).all() as { id: number; title: string; content: string | null }[];
+  if (rows.length === 0) return 0;
+  await initEmbedderForKP();
+  let count = 0;
+  for (const row of rows) {
+    const text = `${row.title}: ${row.content || ""}`;
+    try {
+      const vector = await generateEmbedding(text);
+      db.prepare("UPDATE sys_knowledgepoints SET embedding = ? WHERE id = ?")
+        .run(float32ToBlob(vector), row.id);
+      count++;
+    } catch { /* skip failed */ }
+  }
+  return count;
 }
 
 // ============== Exam paper queries ==============

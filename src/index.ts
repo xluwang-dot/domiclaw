@@ -23,6 +23,8 @@ import {
 
 import { formatMessages } from "./router.js";
 import { NewMessage } from "./types.js";
+import { initRetriever } from "./rag/index.js";
+import { getDatabase } from "./db.js";
 import { logger } from "./logger.js";
 
 let lastAgentTimestamp: string | null = null;
@@ -139,6 +141,7 @@ async function startSchedulerLoop(): Promise<void> {
  */
 async function main(): Promise<void> {
   initDatabase();
+  initRetriever(getDatabase());
   logger.info("数据库已初始化");
 
   // 每 6 小时清理 30 天未命中的查询缓存

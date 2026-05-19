@@ -5,6 +5,7 @@ import { DATA_DIR } from "../config.js";
 import { ToolContext } from "../types.js";
 import { getSessionContext, getWeakAreas } from "../db.js";
 import { getTool, getAllToolDefinitions } from "../tools/index.js";
+import { retrieveRelevant } from "../rag/index.js";
 import { logger } from "../logger.js";
 
 import "../tools/quiz.js";
@@ -14,9 +15,9 @@ import "../tools/study.js";
 import "../tools/reminder.js";
 import "../tools/analyze.js";
 
-export function buildSystemPrompt(
-  userId: number, assistantName: string,
-): string {
+export async function buildSystemPrompt(
+  userId: number, assistantName: string, userInput?: string,
+): Promise<{ systemPrompt: string; ragCount: number }> {
   let instructions: string;
   const mdPath = path.join(DATA_DIR, "agent", "AGENT.md");
   try {
@@ -41,14 +42,30 @@ export function buildSystemPrompt(
     lines.push("");
   }
 
+  let ragCount = 0;
+  if (userInput) {
+    const ragResults = await retrieveRelevant(userInput);
+    ragCount = ragResults.length;
+    if (ragCount > 0) {
+      lines.push("[Retrieved Knowledge]");
+      for (const r of ragResults) {
+        const snippet = r.content.substring(0, 200);
+        lines.push(`- ${r.title}${snippet ? `: ${snippet}` : ""}`);
+      }
+      lines.push("");
+      lines.push("以下是你已经拥有的知识点，无需再次搜索。");
+      lines.push("");
+    }
+  }
+
   lines.push(instructions);
-  return lines.join("\n");
+  return { systemPrompt: lines.join("\n"), ragCount };
 }
 
-export function buildSystemPromptScheduled(
+export async function buildSystemPromptScheduled(
   userId: number, assistantName: string,
-): string {
-  const base = buildSystemPrompt(userId, assistantName);
+): Promise<{ systemPrompt: string; ragCount: number }> {
+  const { systemPrompt: base, ragCount } = await buildSystemPrompt(userId, assistantName);
   const checkInPrefix = `[Scheduled Check-in]
 You are performing a scheduled check-in. The student did not initiate this.
 Be proactive but not pushy. Check on their progress and offer help.
@@ -59,7 +76,7 @@ Be proactive but not pushy. Check on their progress and offer help.
 4. Be brief and encouraging — aim for 2-3 sentences max
 
 `;
-  return checkInPrefix + base;
+  return { systemPrompt: checkInPrefix + base, ragCount };
 }
 
 export async function executeTool(

@@ -42,9 +42,9 @@ export async function runAgent(
   }
 
   const assistantName = input.assistantName || "Domiclaw";
-  const systemPrompt = input.isScheduledTask
-    ? buildSystemPromptScheduled(input.userId, assistantName)
-    : buildSystemPrompt(input.userId, assistantName);
+  const { systemPrompt, ragCount } = input.isScheduledTask
+    ? await buildSystemPromptScheduled(input.userId, assistantName)
+    : await buildSystemPrompt(input.userId, assistantName, input.prompt);
   const tools = getAllToolDefinitions();
   const toolCtx: ToolContext = {
     workspaceDir: WORKSPACE_DIR,
@@ -56,8 +56,10 @@ export async function runAgent(
     { role: "user", content: input.prompt },
   ];
 
+  logger.info({ sysPromptLen: systemPrompt.length, ragHits: ragCount }, "[Agent] 系统提示已构建");
+
   for (let iteration = 0; iteration < MAX_TOOL_LOOP; iteration++) {
-    logger.info({ iteration, msgCount: messages.length }, "Calling model API");
+    logger.info({ iteration, msgCount: messages.length }, "[Agent] 调用 LLM");
 
     try {
       if (iteration === 0 && STREAMING_ENABLED) {
@@ -91,6 +93,8 @@ export async function runAgent(
               parsedArgs = JSON.parse(tc.function.arguments);
             } catch { /* keep empty args */ }
 
+            logger.info({ tool: toolName, args: parsedArgs }, "[Agent] LLM 请求调用工具");
+
             if (onOutput) {
               await onOutput({
                 status: "success", result: null, thinking: null, isPartial: true,
@@ -99,6 +103,7 @@ export async function runAgent(
             }
 
             const toolResult = await executeTool(toolName, parsedArgs, toolCtx);
+            logger.info({ tool: toolName, resultLen: toolResult.length }, "[Agent] 工具执行完成");
             messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
 
             if (onOutput) {
@@ -135,6 +140,8 @@ export async function runAgent(
             parsedArgs = JSON.parse(tc.function.arguments);
           } catch { /* keep empty args */ }
 
+          logger.info({ tool: toolName, args: parsedArgs }, "[Agent] LLM 请求调用工具");
+
           if (onOutput) {
             await onOutput({
               status: "success", result: null, thinking: null, isPartial: true,
@@ -143,6 +150,7 @@ export async function runAgent(
           }
 
           const toolResult = await executeTool(toolName, parsedArgs, toolCtx);
+          logger.info({ tool: toolName, resultLen: toolResult.length }, "[Agent] 工具执行完成");
           messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult });
 
           if (onOutput) {
@@ -159,10 +167,12 @@ export async function runAgent(
       }
 
       if (result.content) {
+        logger.info({ responseLen: result.content.length }, "[Agent] LLM 返回最终结果");
         if (onOutput) await onOutput({ status: "success", result: result.content, thinking: null });
         return { status: "success", result: result.content, thinking: null };
       }
 
+      logger.warn("[Agent] LLM 返回空结果");
       return { status: "success", result: null, thinking: null };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);

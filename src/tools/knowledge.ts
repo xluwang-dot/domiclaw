@@ -5,6 +5,7 @@ import {
   getAllSubjects,
   getSubjectByName,
   searchKnowledgePoints,
+  generateKPEmbedding,
 } from "../db.js";
 
 registerTool("add_knowledge_point", {
@@ -42,6 +43,7 @@ registerTool("add_knowledge_point", {
     }
 
     const id = addKnowledgePoint(subject.id, title, content, undefined, undefined, undefined, alias, prerequisiteIds, relatedIds);
+    generateKPEmbedding(id).catch(() => {});
     let msg = `Knowledge point added (ID: ${id}). Subject: ${subjectName}, Title: ${title}`;
     if (prerequisiteIds) msg += `\nPrerequisite IDs: ${prerequisiteIds}`;
     if (relatedIds) msg += `\nRelated IDs: ${relatedIds}`;
