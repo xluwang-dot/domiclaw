@@ -8,7 +8,7 @@
 ## 功能
 
 ### 核心
-- **工具调用** — Agent 通过 18 个工具执行数据库和文件操作
+- **工具调用** — Agent 通过 17 个工具执行数据库和文件操作
 - **多模型** — 支持 DeepSeek、Qwen、Anthropic、OpenAI 兼容 API
 - **Web 界面** — 三页面架构（登录 / 学习主界面 / 管理后台），HTTP + SSE
 - **多用户认证** — 注册 / 登录，bcrypt 密码哈希，session cookie，角色分离
@@ -16,16 +16,19 @@
 - **对话记忆** — 滑动上下文窗口 + 会话持久化
 - **命令系统** — `/help`、`/status`、`/review`、`/plan`、`/quiz`、`/wrong`、`/subject`（本地执行，无 API 消耗）
 - **可靠性** — 指数退避重试、多模型故障转移、令牌桶限流
+- **结构化日志** — 5 阶段工作流追踪（入口→AQC→RAG→Agent→出口）
 
 ### 学习
 - **测验系统** — 从题库创建测验，自动评分，AI 解析弱项知识点
-- **知识库** — 学科、知识点（层级支持）、试卷管理
+- **知识库** — 学科、知识点（层级支持）、知识点间关联（前置/横向关系）
+- **RAG 语义检索** — 向量嵌入（bge-base-zh-v1.5）语义匹配，环境变量切换（LIKE 降级）
 - **错题追踪** — 自动记录错题，SM-2 间隔重复（1→3→7→14→30 天）
 - **掌握度评估** — EWMA 算法追踪每个知识点的掌握度（0~1），知识图谱节点动态着色
 - **AI 错题归因** — 分析错误答案，定位最可能薄弱的关联知识点
 - **学习计划** — 按天制定计划，进度追踪和完成度进度条
 - **定时提醒** — 每日复习检查、考试倒计时、计划提醒
 - **数据导入导出** — 批量 JSON 导入题目，错题导出
+- **自适应查询缓存** — 高频自然语言查询本地匹配，双层 LRU 缓存
 
 ### Web 界面
 - **登录/注册页** — 用户认证入口
@@ -74,8 +77,8 @@ npm install
 # 开发模式
 npm run dev
 
-# 生产模式
-npm run build && npm start
+# 生产模式（启用 RAG 向量检索）
+VECTOR_SEARCH_ENABLED=true npm run build && npm start
 ```
 
 ### 4. 使用
@@ -92,22 +95,37 @@ npm run build && npm start
 domiclaw/
 ├── src/
 │   ├── index.ts              # 入口，Web 启动，定时任务调度
-│   ├── agent.ts              # LLM API 调用，流式输出，工具调用循环
+│   ├── agent.ts              # 重新导出 src/agent/
+│   ├── agent/                # Agent 三层架构（T044）
+│   │   ├── index.ts          #   入口
+│   │   ├── loop.ts           #   工具调用循环
+│   │   ├── environment.ts    #   系统提示构建（RAG 注入 + 会话上下文）
+│   │   └── model.ts          #   LLM API 调用（流式 / 非流式）
 │   ├── auth.ts               # 用户认证（注册/登录/session管理）
 │   ├── config.ts             # 配置（从 .env 加载）
-│   ├── db.ts                 # SQLite — 15 表，50+ 查询函数
+│   ├── db.ts                 # SQLite — 15+ 表，50+ 查询函数
+│   ├── query-router.ts       # 自适应查询缓存（AQC）
+│   ├── sessionStore.ts       # 自定义 better-sqlite3 session 存储
 │   ├── router.ts             # XML 消息格式化
 │   ├── commands.ts           # 本地命令处理（7 个命令）
 │   ├── rate-limit.ts         # 令牌桶限流器
 │   ├── logger.ts             # 结构化控制台日志
 │   ├── types.ts              # 类型定义
 │   ├── env.ts                # .env 文件解析
+│   ├── rag/                  # RAG 语义检索（T058）
+│   │   ├── index.ts          #   入口：initRetriever, retrieveRelevant
+│   │   ├── embeddings/       #   向量嵌入
+│   │   │   └── embeddingService.ts
+│   │   └── retrievers/       #   检索器
+│   │       ├── base.ts       #     抽象接口
+│   │       ├── ftsRetriever.ts #     LIKE 降级检索
+│   │       └── vectorRetriever.ts # 向量语义检索
 │   ├── channels/
 │   │   └── http.ts           # Express + SSE + REST API + 静态文件
 │   └── tools/
 │       ├── index.ts          # 工具注册表
 │       ├── quiz.ts           # create_quiz, record_answer, export_wrong_questions
-│       ├── knowledge.ts      # add_knowledge_point, search_knowledge, add_exam_paper, import_questions
+│       ├── knowledge.ts      # add_knowledge_point, search_knowledge, import_questions
 │       ├── review.ts         # get_due_reviews, review_answer, get_study_stats
 │       ├── study.ts          # generate_study_plan, get_study_plan, mark_task_done, get_study_progress
 │       ├── reminder.ts       # schedule_daily_review, cancel_reminder, list_reminders
@@ -119,6 +137,8 @@ domiclaw/
 ├── data/
 │   └── agent/
 │       └── AGENT.md          # Agent 角色定义（伙伴风格、交互指南）
+├── scripts/
+│   └── generateEmbeddings.ts # 批量生成知识库嵌入向量
 ├── store/                    # SQLite 数据库（运行时）
 ├── package.json
 └── .env.example
@@ -151,6 +171,18 @@ domiclaw/
 | `RATE_LIMIT_WINDOW` | 限流窗口（ms） | `60000` |
 | `POLL_INTERVAL` | 定时任务轮询间隔（ms） | `2000` |
 | `LOG_LEVEL` | 日志级别 | `info` |
+| `VECTOR_SEARCH_ENABLED` | 启用向量语义检索 | `false`（= LIKE 检索） |
+| `EMBEDDING_MODEL` | 嵌入模型名称 | `Xenova/bge-base-zh-v1.5` |
+| `RAG_TOP_K` | 检索返回条数 | `5` |
+| `HF_MIRROR` | HuggingFace 镜像 | — |
+
+## RAG 配置
+
+向量检索默认关闭（使用 LIKE 降级检索），开启后首次启动会下载模型（~103MB）：
+
+- 模型：`Xenova/bge-base-zh-v1.5`（768 维）
+- 首次使用需要生成知识库嵌入：`npx tsx scripts/generateEmbeddings.ts`
+- 知识库增删改时自动同步嵌入
 
 ## 支持的模型
 
@@ -174,13 +206,34 @@ domiclaw/
   → 鉴权（session cookie）
   → 限流检查（按用户）
   → 检查是否为命令（/help, /status 等）— 本地响应
+  → AQC 自适应查询缓存（常见问题本地匹配，跳过 LLM）
   → 加载对话上下文（最近 N 条消息）
-  → 构建系统提示词（AGENT.md 角色定义 + 会话上下文 + 薄弱知识点 + 掌握度）
+  → 构建系统提示词（AGENT.md 角色定义 + 会话上下文 + RAG 检索注入 + 薄弱知识点）
   → 如为定时检查：附加 Scheduled Check-in 前缀
-  → 调用 LLM（带 18 个工具定义，首轮流式输出）
+  → 调用 LLM（带 17 个工具定义，首轮流式输出）
   → 如有工具调用：本地执行，结果反馈给模型，最多 10 次循环
   → 流式输出到 SSE（思考过程可折叠，内容正常显示）
   → 更新会话上下文和掌握度
+```
+
+### 自适应查询缓存（AQC）
+
+```
+每次查询先过 AQC：
+  1. 缓存命中 → 直接返回缓存的 LLM 回复
+  2. 缓存未命中 → 调用 LLM 做意图分类（无需调用工具的问题）
+     - chat → 放行给 Agent
+     - stats/wrong/review/quiz → 有对应工具路由
+  3. 新回复写入缓存（LRU，上限 100 条，定期清理过期条目）
+```
+
+### RAG 语义检索
+
+```
+系统提示构建时，如果有用户输入：
+  1. 用输入文本检索知识点（向量或 LIKE）
+  2. 前 N 条知识点的标题+摘要注入到 [Retrieved Knowledge] 段
+  3. Agent 直接使用这些知识回答，无需额外搜索
 ```
 
 ### 掌握度评估（EWMA）

@@ -162,7 +162,7 @@ export const THINKING_MODE = (
 
 export const MAX_CONTEXT_MESSAGES = Math.max(
   1,
-  parseInt(process.env.MAX_CONTEXT_MESSAGES || "20", 10) || 20,
+  parseInt(process.env.MAX_CONTEXT_MESSAGES || "30", 10) || 30,
 );
 
 export const CONTEXT_SUMMARIZE_THRESHOLD = Math.max(

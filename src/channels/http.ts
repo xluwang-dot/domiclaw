@@ -513,6 +513,42 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     // AQC layer — try cached/natural-language query first
     const aqcResult = await routeViaCache(text, userId, ASSISTANT_NAME);
     if (aqcResult !== null) {
+      // Check for create_quiz directive from AQC
+      if (aqcResult.startsWith("__CREATE_QUIZ__:")) {
+        const paramsStr = aqcResult.slice("__CREATE_QUIZ__:".length);
+        logger.info({ paramsStr }, "[AQC] create_quiz 指令，转发至 Agent 直接执行");
+        pushSse(userId, "status", { phase: "processing" });
+        const directive = `[系统指令] 用户要求创建测验，参数：${paramsStr}。直接调用 create_quiz 工具传入这些参数，不要再询问用户确认或额外信息。`;
+        const fullContext = directive + "\n\n" + formatMessages([msg]);
+        const agentInput = {
+          prompt: msg.content,
+          fullContext,
+          assistantName: ASSISTANT_NAME,
+          userId,
+        };
+        const output = await runAgent(agentInput);
+        if (output.status === "success" && output.result) {
+          logger.info({ resultLen: output.result.length }, "[出口] Agent 返回结果");
+          upsertSessionContext(userId, msg.content.substring(0, 120), null, null);
+          const botMsg: NewMessage = {
+            id: `web-bot-${Date.now()}`,
+            sender: ASSISTANT_NAME,
+            sender_name: ASSISTANT_NAME,
+            content: output.result,
+            timestamp: new Date().toISOString(),
+            is_bot_message: true,
+          };
+          storeMessage(botMsg, userId);
+          onAgentProcessed?.(msg.timestamp);
+          pushSse(userId, "done", { status: "success", text: output.result });
+          res.json({ status: "ok", text: output.result });
+        } else {
+          pushSse(userId, "error", { text: output.error || "Agent error" });
+          res.json({ status: "error", error: output.error });
+        }
+        return;
+      }
+
       logger.info({ text, replyLen: aqcResult.length }, "[出口] AQC 直接返回，无需 Agent");
       const botMsg: NewMessage = {
         id: `web-aqc-${Date.now()}`,
@@ -524,6 +560,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       };
       storeMessage(botMsg, userId);
       onAgentProcessed?.(msg.timestamp);
+      pushSse(userId, "done", { status: "success", text: aqcResult });
       res.json({ status: "ok", text: aqcResult });
       return;
     }
@@ -538,15 +575,16 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       MAX_MESSAGES_PER_PROMPT,
     );
 
-    const prompt =
+    const fullContext =
       recentMsgs.length > 0
         ? formatMessages(recentMsgs)
         : formatMessages([msg]);
 
-    logger.info({ promptLen: prompt.length }, "[入口] 转发至 Agent");
+    logger.info({ promptLen: fullContext.length }, "[入口] 转发至 Agent");
     runAgent(
       {
-        prompt,
+        prompt: msg.content,
+        fullContext,
         assistantName: ASSISTANT_NAME,
         userId,
       },

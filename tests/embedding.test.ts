@@ -209,6 +209,21 @@ describe("rag index", () => {
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].title).toBe("Hello World");
   });
+
+  it("should filter results below MIN_RELEVANCE_SCORE", async () => {
+    const db = new Database(":memory:");
+    createSchema(db);
+    initAuthDb(db);
+    useTestDatabase(db);
+    const subjId = addSubject("Test", null);
+    addKnowledgePoint(subjId, "UniqueMatchKP", "some content");
+
+    initRetriever(db);
+    const results = await retrieveRelevant("UniqueMatchKP");
+    expect(results.length).toBeGreaterThan(0);
+    const scores = results.map(r => r.score);
+    expect(Math.min(...scores)).toBeGreaterThanOrEqual(0.65);
+  });
 });
 
 // ========== db.ts (generateKPEmbedding + rebuildAllEmbeddings) ==========
@@ -322,6 +337,52 @@ describe("buildSystemPrompt RAG injection", () => {
   it("should tell agent not to re-search when RAG has hits", async () => {
     const { buildSystemPrompt } = await import("../src/agent/environment.js");
     const { systemPrompt } = await buildSystemPrompt(0, "TestBot", "加法法则");
-    expect(systemPrompt).toContain("无需再次搜索");
+    expect(systemPrompt).toContain("可直接用于回答知识性问题");
+  });
+});
+
+// ========== current_question injection ==========
+
+describe("current_question injection", () => {
+  beforeEach(async () => {
+    const { clearCurrentQuestion } = await import("../src/agent/questionContext.js");
+    clearCurrentQuestion(42);
+  });
+
+  it("should inject current question into system prompt when set", async () => {
+    const { setCurrentQuestion } = await import("../src/agent/questionContext.js");
+    const { buildSystemPrompt } = await import("../src/agent/environment.js");
+
+    setCurrentQuestion(42, {
+      questionId: 100,
+      questionText: "已知二次函数经过点(1,0)和(3,0)，求解析式",
+      progress: { currentSubIndex: 0, solvedSubIndices: [], userAnswers: {} },
+    });
+
+    const { systemPrompt } = await buildSystemPrompt(42, "TestBot");
+    expect(systemPrompt).toContain("[Current Question]");
+    expect(systemPrompt).toContain("已知二次函数经过点(1,0)和(3,0)，求解析式");
+  });
+
+  it("should not inject when no current question", async () => {
+    const { buildSystemPrompt } = await import("../src/agent/environment.js");
+    const { systemPrompt } = await buildSystemPrompt(42, "TestBot");
+    expect(systemPrompt).not.toContain("[Current Question]");
+  });
+
+  it("should include sub-questions and progress when set", async () => {
+    const { setCurrentQuestion } = await import("../src/agent/questionContext.js");
+    const { buildSystemPrompt } = await import("../src/agent/environment.js");
+
+    setCurrentQuestion(42, {
+      questionId: 100,
+      questionText: "已知二次函数...",
+      subQuestions: ["(1) 求解析式", "(2) 求顶点坐标"],
+      progress: { currentSubIndex: 1, solvedSubIndices: [0], userAnswers: { 0: "y=x²-4x+3" } },
+    });
+
+    const { systemPrompt } = await buildSystemPrompt(42, "TestBot");
+    expect(systemPrompt).toContain("第1问");
+    expect(systemPrompt).toContain("第 2 问");
   });
 });

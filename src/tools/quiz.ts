@@ -21,6 +21,7 @@ import {
   getQuestionDifficulty,
   getTestLevelConfig,
 } from "../db.js";
+import { setCurrentQuestion } from "../agent/questionContext.js";
 
 /**
  * 检查学生答案是否正确
@@ -41,7 +42,7 @@ registerTool("create_quiz", {
     type: "function",
     function: {
       name: "create_quiz",
-      description: "创建一个新的测验会话，返回测验介绍和第一个问题",
+      description: "创建一个新的测验会话，返回测验介绍和所有题目列表",
       parameters: {
         type: "object",
         properties: {
@@ -50,7 +51,7 @@ registerTool("create_quiz", {
           knowledge_point: { type: "string", description: "可选：按知识点标题筛选" },
           min_difficulty: { type: "number", description: "可选：最低难度（0-1），只返回难度不低于此值的题目" },
           max_difficulty: { type: "number", description: "可选：最高难度（0-1），只返回难度不高于此值的题目" },
-          test_level: { type: "number", description: "可选：测试等级（1/2/3），按预设难度分布出题，会覆盖 question_count" },
+          test_level: { type: "number", description: "可选：测试等级（1/2/3）。互斥规则：与 question_count 同时传入时，以 question_count 为准，test_level 仅用于推断难度范围（当未指定 min/max_difficulty 时）" },
         },
         required: ["subject"],
       },
@@ -58,17 +59,33 @@ registerTool("create_quiz", {
   },
   async execute(args, ctx) {
     const subjectName = args.subject as string;
+    const hasExplicitCount = args.question_count !== undefined;
     let questionCount = (args.question_count as number) || 5;
     const kpFilter = args.knowledge_point as string | undefined;
     const testLevel = args.test_level as number | undefined;
 
-    // 按测试等级覆盖题目数量和难度分布
+    // 互斥规则：question_count 优先于 test_level
+    // 只有当 question_count 未显式传入时，才用 test_level 的配置
     if (testLevel !== undefined) {
       const cfg = getTestLevelConfig(testLevel);
       if (!cfg) {
         return `Invalid test_level "${testLevel}". Available: 1, 2, 3.`;
       }
-      questionCount = cfg.question_count;
+      if (!hasExplicitCount) {
+        questionCount = cfg.question_count;
+      }
+    }
+
+    // 当 question_count 和 test_level 同时传入，且未指定显式难度范围时，用 test_level 推断难度过滤
+    if (testLevel !== undefined && hasExplicitCount && args.min_difficulty === undefined && args.max_difficulty === undefined) {
+      if (testLevel === 1) {
+        args.max_difficulty = 2;
+      } else if (testLevel === 2) {
+        args.min_difficulty = 2;
+        args.max_difficulty = 3;
+      } else if (testLevel === 3) {
+        args.min_difficulty = 3;
+      }
     }
 
     const subject = getSubjectByName(subjectName);
@@ -138,8 +155,8 @@ registerTool("create_quiz", {
 
     // Select random questions
     let selected: any[];
-    if (testLevel !== undefined) {
-      // 按等级按难度分层抽题
+    if (testLevel !== undefined && !hasExplicitCount) {
+      // 只有 test_level 未设置 question_count 时，按等级分层抽题
       const cfg = getTestLevelConfig(testLevel)!;
       const ratios = [cfg.easy_ratio, cfg.medium_ratio, cfg.hard_ratio];
       const diffValues = [testLevel, testLevel + 1, testLevel + 2];
@@ -233,6 +250,16 @@ registerTool("record_answer", {
     }
 
     const answered = getQuizSessionAnswers(sessionId);
+
+    setCurrentQuestion(userId, {
+      questionId: question.id,
+      questionText: question.question_text,
+      progress: {
+        currentSubIndex: 0,
+        solvedSubIndices: [],
+        userAnswers: { [answered.length - 1]: studentAnswer },
+      },
+    });
 
     const correctStr = correct ? "CORRECT" : "INCORRECT";
     let response = `${correctStr}\n`;

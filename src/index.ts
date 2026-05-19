@@ -60,6 +60,7 @@ async function processScheduledTasks(): Promise<void> {
       const output = await runAgent(
         {
           prompt: taskPrompt,
+          fullContext: taskPrompt,
           isScheduledTask: true,
           assistantName: ASSISTANT_NAME,
           userId,

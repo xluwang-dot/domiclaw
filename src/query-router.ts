@@ -61,13 +61,20 @@ export async function routeViaCache(
     logger.info("[AQC] 意图分类结果为 chat，放行至 Agent");
     return null;
   }
-  logger.info({ intent: intentResult.intent }, "[AQC] 意图分类命中");
+  logger.info({ intent: intentResult.intent, params: intentResult.params }, "[AQC] 意图分类命中");
 
-  // 3. 执行操作
+  // 3. create_quiz 特殊处理：返回指令标记，由 http.ts 转发给 Agent
+  if (intentResult.intent === "create_quiz") {
+    const directive = `__CREATE_QUIZ__:${JSON.stringify(intentResult.params)}`;
+    logger.info({ params: intentResult.params }, "[AQC] create_quiz 意图，构造 Agent 指令");
+    return directive;
+  }
+
+  // 4. 执行操作
   const reply = await executeOperation(userId, intentResult.operation);
   if (reply === null) return null;
 
-  // 4. 缓存结果（用户层）
+  // 5. 缓存结果（用户层）
   try {
     insertCachedQuery(
       userInput, intentResult.intent,
@@ -94,11 +101,16 @@ Available capabilities:
 - getWrongQuestions(userId, subject?): Get user's wrong questions list
 - getDueReviews(userId): Get today's due spaced repetition reviews
 - getStudyPlan(userId): Get current study plan and progress
+- createQuiz(userId, subject, knowledge_point?, question_count?, test_level?): Create a quiz directly
+
+If the user asks to create a quiz, take a test, or similar request, return createQuiz intent with the extracted params.
 
 If the user input does NOT match any capability (e.g. chatting, requesting explanations, generating content), return {"intent":"chat"}.
 
 Otherwise, return a JSON object exactly like:
 {"intent":"query_study_stats","params":{},"operation":{"action":"getStudyStats","params":{"userId":USERID}}}
+
+For createQuiz, use {"intent":"create_quiz","params":{"subject":"数学","knowledge_point":"二次函数","question_count":10,"test_level":1},"operation":{"action":"create_quiz","params":{"subject":"数学","knowledge_point":"二次函数","question_count":10,"test_level":1}}}
 
 Replace USERID with the actual value: ${userId}.
 

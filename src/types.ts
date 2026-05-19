@@ -58,6 +58,7 @@ export interface RegisteredTool {
 
 export interface AgentInput {
   prompt: string;
+  fullContext?: string;
   sessionId?: string;
   isScheduledTask?: boolean;
   assistantName?: string;

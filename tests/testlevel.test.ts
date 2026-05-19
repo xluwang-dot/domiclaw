@@ -124,4 +124,23 @@ describe("create_quiz with test_level", () => {
 
     expect(result).toContain("Questions: 10");
   });
+
+  it("question_count should take priority over test_level when both are set", async () => {
+    // Seed enough easy questions (diff=1 or 2) so question_count=10 can be fulfilled
+    seedQuestionsByDifficulty([
+      ...Array(7).fill(1),
+      ...Array(5).fill(2),
+    ]);
+    const tool = getTool("create_quiz");
+    expect(tool).toBeDefined();
+
+    const result = await tool!.execute(
+      { subject: "TestLevelSubject", question_count: 10, test_level: 1 },
+      { userId: 1, workspaceDir: "." },
+    );
+
+    // question_count=10 should win over test_level=1's default 30,
+    // test_level=1 infers max_difficulty=2 → 12 easy questions available, ask for 10
+    expect(result).toContain("Questions: 10");
+  });
 });
