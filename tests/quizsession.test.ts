@@ -218,3 +218,109 @@ describe("P1: getQuizSessionById and getQuizSessionQuestions", () => {
     expect(answered).toEqual([]);
   });
 });
+
+describe("T062: create_quiz 随机性修复", () => {
+  function seedManyQuestions(db: Database.Database, count: number): number {
+    const subjId = addSubject("RandomTest", null);
+    const kpId = addKnowledgePoint(subjId, "RandomTestKP", "test");
+    const now = new Date().toISOString();
+    const insert = db.prepare(
+      `INSERT INTO sys_questions (knowledge_point_id, question_text, answer, difficulty, question_type, options, status, created_at)
+       VALUES (?, ?, ?, 1, 'multiple_choice', ?, 'published', ?)`
+    );
+    for (let i = 0; i < count; i++) {
+      insert.run(kpId, `RandomQ ${i}`, `A${i}`, JSON.stringify(["A", "B", "C", "D"]), now);
+    }
+    return subjId;
+  }
+
+  it("P0: 不包含知识点名字的题目也能被抽到（文字过滤已移除）", async () => {
+    const subjId = addSubject("NoTextFilter", null);
+    const kpId = addKnowledgePoint(subjId, "二次函数", "test");
+    const now = new Date().toISOString();
+    const insert = testDb.prepare(
+      `INSERT INTO sys_questions (knowledge_point_id, question_text, answer, difficulty, question_type, options, status, created_at)
+       VALUES (?, ?, ?, 1, 'multiple_choice', ?, 'published', ?)`
+    );
+    // 10 道题面含"二次函数"，10 道不含（如"抛物线"）
+    for (let i = 0; i < 10; i++) {
+      insert.run(kpId, `二次函数问题${i}`, `A${i}`, JSON.stringify(["A", "B"]), now);
+    }
+    for (let i = 0; i < 10; i++) {
+      insert.run(kpId, `抛物线问题${i}`, `A${i}`, JSON.stringify(["A", "B"]), now);
+    }
+
+    const tool = getTool("create_quiz");
+    const result = await tool!.execute(
+      { subject: "NoTextFilter", knowledge_point: "二次函数", question_count: 15 },
+      { userId: 1, workspaceDir: "." },
+    );
+
+    // 20 道题在池中，应返回 15 道，且必须包含"抛物线"开头的题目
+    expect(result).toContain("Questions: 15");
+    const pqCount = (result.match(/抛物线问题/g) || []).length;
+    expect(pqCount).toBeGreaterThan(0);
+  });
+
+  it("P1: 两次抽题返回不同子集（pool > question_count）", async () => {
+    seedManyQuestions(testDb, 20);
+    const tool = getTool("create_quiz");
+    expect(tool).toBeDefined();
+
+    const results = new Set<string>();
+    for (let i = 0; i < 3; i++) {
+      const result = await tool!.execute(
+        { subject: "RandomTest", question_count: 5 },
+        { userId: i + 10, workspaceDir: "." },
+      );
+      // 提取题目 ID 列表
+      const ids = (result.match(/ID: (\d+)/g) || []).sort().join(",");
+      results.add(ids);
+    }
+
+    // 3 次请求应至少产生 2 种不同组合（概率 > 99.9%）
+    expect(results.size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("P1: 同用户两次抽题返回不同子集", async () => {
+    seedManyQuestions(testDb, 20);
+    const tool = getTool("create_quiz");
+    expect(tool).toBeDefined();
+
+    const r1 = await tool!.execute(
+      { subject: "RandomTest", question_count: 5 },
+      { userId: 99, workspaceDir: "." },
+    );
+    const r2 = await tool!.execute(
+      { subject: "RandomTest", question_count: 5 },
+      { userId: 99, workspaceDir: "." },
+    );
+
+    const ids1 = (r1.match(/ID: (\d+)/g) || []).sort().join(",");
+    const ids2 = (r2.match(/ID: (\d+)/g) || []).sort().join(",");
+    expect(ids1).not.toBe(ids2);
+  });
+
+  it("P1+2: pool ≤ question_count 时全量返回且顺序可能不同", async () => {
+    seedManyQuestions(testDb, 5);
+    const tool = getTool("create_quiz");
+    expect(tool).toBeDefined();
+
+    const r1 = await tool!.execute(
+      { subject: "RandomTest", question_count: 10 },
+      { userId: 100, workspaceDir: "." },
+    );
+    const r2 = await tool!.execute(
+      { subject: "RandomTest", question_count: 10 },
+      { userId: 100, workspaceDir: "." },
+    );
+
+    const qCount1 = (r1.match(/Q\d+\/5/g) || []).length;
+    const qCount2 = (r2.match(/Q\d+\/5/g) || []).length;
+    // 虽然 pool=5 < 10，但应该正确显示实际题目数
+    expect(r1).toContain("Questions: 5");
+    expect(r2).toContain("Questions: 5");
+    expect(qCount1).toBe(5);
+    expect(qCount2).toBe(5);
+  });
+});

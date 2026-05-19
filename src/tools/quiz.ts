@@ -133,13 +133,6 @@ registerTool("create_quiz", {
       questions = getQuestionsBySubject(subject.id, 200);
     }
 
-    if (kpFilter) {
-      questions = questions.filter((q) => {
-        if (!q.knowledge_point_id) return false;
-        return q.question_text.toLowerCase().includes(kpFilter.toLowerCase());
-      });
-    }
-
     // 按难度筛选
     const minDiff = args.min_difficulty as number | undefined;
     const maxDiff = args.max_difficulty as number | undefined;
@@ -172,17 +165,19 @@ registerTool("create_quiz", {
           ? Math.round(questionCount * ratio)
           : questionCount - pool.length;
 
-        const bucket = questions
-          .filter((q) => q.difficulty === diff)
-          .sort(() => Math.random() - 0.5)
-          .slice(0, count);
+        const bucket = shuffleArray(
+          questions.filter((q) => q.difficulty === diff),
+        ).slice(0, count);
 
         pool.push(...bucket);
       }
 
-      selected = pool.sort(() => Math.random() - 0.5);
+      selected = shuffleArray(pool);
     } else {
-      selected = questions.sort(() => Math.random() - 0.5).slice(0, Math.min(questionCount, questions.length));
+      if (questions.length <= questionCount) {
+        logger.warn({ available: questions.length, requested: questionCount }, "[quiz] 题库数量不足，返回全部可用题目");
+      }
+      selected = shuffleArray(questions).slice(0, Math.min(questionCount, questions.length));
     }
     const sessionId = createQuizSession(subject.id, ctx.userId);
 
@@ -446,6 +441,15 @@ registerTool("export_wrong_questions", {
  * @param q 问题对象
  * @returns 格式化后的字符串
  */
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function formatQuestion(
   num: number,
   total: number,
