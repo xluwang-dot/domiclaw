@@ -62,6 +62,7 @@ import {
   getUserProfile,
   deleteUserCascade,
   getDatabase,
+  getTaskState,
 } from "../db.js";
 import {
   ASSISTANT_NAME,
@@ -541,6 +542,10 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           };
           storeMessage(botMsg, userId);
           onAgentProcessed?.(msg.timestamp);
+          const taskState = getTaskState(userId);
+          if (taskState.active) {
+            pushSse(userId, "mode_change", { mode: "task", taskStack: taskState.stack });
+          }
           pushSse(userId, "done", { status: "success", text: output.result });
           res.json({ status: "ok", text: output.result });
         } else {
@@ -616,6 +621,10 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
             is_bot_message: true,
           };
           storeMessage(botMsg, userId);
+          const taskState = getTaskState(userId);
+          if (taskState.active) {
+            pushSse(userId, "mode_change", { mode: "task", taskStack: taskState.stack });
+          }
           pushSse(userId, "done", { status: "success", text: output.result });
         } else if (!output.isPartial) {
           pushSse(userId, "done", { status: "error", error: output.error });
