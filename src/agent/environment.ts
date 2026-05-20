@@ -8,6 +8,7 @@ import { getTool, getAllToolDefinitions } from "../tools/index.js";
 import { retrieveRelevant } from "../rag/index.js";
 import { logger } from "../logger.js";
 import { getCurrentQuestion } from "./questionContext.js";
+import { TaskEngine } from "../task/taskEngine.js";
 
 import "../tools/quiz.js";
 import "../tools/knowledge.js";
@@ -83,6 +84,12 @@ export async function buildSystemPrompt(
       lines.push(`已完成：${solved.map(i => `第${i + 1}问`).join(", ")}`);
     }
     lines.push(`当前正在做：第 ${currentQ.progress.currentSubIndex + 1} 问`);
+    lines.push("");
+  }
+
+  const currentTask = TaskEngine.getCurrentTask(userId);
+  if (currentTask) {
+    lines.push(TaskEngine.buildTaskPrompt(currentTask));
     lines.push("");
   }
 
@@ -167,8 +174,42 @@ export async function executeTool(
     return `Error: unknown tool "${name}". Available: ${available}`;
   }
 
+  // 任务模式：进入前检查工具是否允许
+  const currentTask = TaskEngine.getCurrentTask(ctx.userId);
+  if (currentTask) {
+    if (!TaskEngine.taskGuard(name, currentTask)) {
+      const msg = `当前任务模式下不允许调用 ${name}`;
+      logger.warn({ tool: name, taskType: currentTask.type }, msg);
+      return `Error: ${msg}`;
+    }
+    // 更新任务阶段
+    TaskEngine.updatePhase(ctx.userId, "during");
+  } else {
+    // 无活跃任务时，自动推断是否需要进入任务模式
+    const inferred = TaskEngine.inferTask(name, ctx.userId, args);
+    if (inferred) {
+      TaskEngine.startTask(ctx.userId, inferred);
+    }
+  }
+
   try {
-    return await tool.execute(args, ctx);
+    const result = await tool.execute(args, ctx);
+
+    // 任务执行后：更新上下文（如记录 quiz_session_id）
+    if (currentTask || TaskEngine.getCurrentTask(ctx.userId)) {
+      if (name === "create_quiz") {
+        const sessionMatch = result.match(/session_id=(\d+)/);
+        if (sessionMatch) {
+          const task = TaskEngine.getCurrentTask(ctx.userId);
+          if (task) {
+            task.context = { ...task.context, quizSessionId: parseInt(sessionMatch[1], 10) };
+            TaskEngine.updatePhase(ctx.userId, "during");
+          }
+        }
+      }
+    }
+
+    return result;
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     logger.error({ tool: name, err }, "Tool execution error");

@@ -165,4 +165,5 @@ registerTool("analyze_wrong_answer", {
       return `LLM analysis error: ${msg}`;
     }
   },
+  metadata: { taskPhase: "during", taskTypes: ["quiz", "study"] },
 });

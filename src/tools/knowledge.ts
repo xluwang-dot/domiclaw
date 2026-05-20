@@ -49,6 +49,7 @@ registerTool("add_knowledge_point", {
     if (relatedIds) msg += `\nRelated IDs: ${relatedIds}`;
     return msg;
   },
+  metadata: { taskPhase: "post", taskTypes: ["study"] },
 });
 
 registerTool("search_knowledge", {
@@ -88,6 +89,7 @@ registerTool("search_knowledge", {
       )
       .join("\n\n");
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });
 
 registerTool("import_questions", {
@@ -145,4 +147,5 @@ registerTool("import_questions", {
 
     return `Imported ${imported} question(s) for ${subjectName}. They are now available for quizzes.`;
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });

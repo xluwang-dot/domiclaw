@@ -77,6 +77,7 @@ registerTool("generate_study_plan", {
       tasks.map((t) => `Day ${t.day} (${t.date}): [${t.topic}] ${t.task}`).join("\n") +
       `\n\nUse mark_task_done with plan_id=${planId} and day_index to track progress.`;
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });
 
 registerTool("get_study_plan", {
@@ -123,6 +124,7 @@ registerTool("get_study_plan", {
 
     return response;
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });
 
 registerTool("mark_task_done", {
@@ -154,6 +156,7 @@ registerTool("mark_task_done", {
 
     return `Task marked done: Day ${task.day} — ${task.topic}: ${task.task}\nProgress: ${completed}/${tasks.length} (${percent}%)`;
   },
+  metadata: { taskPhase: "during", taskTypes: ["quiz", "review", "study", "self_eval"] },
 });
 
 registerTool("get_study_progress", {
@@ -187,6 +190,7 @@ registerTool("get_study_progress", {
     }
     return response;
   },
+  metadata: { taskPhase: "post", taskTypes: ["quiz", "review", "study"] },
 });
 
 /**

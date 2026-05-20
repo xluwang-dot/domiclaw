@@ -469,8 +469,21 @@ body.light .katex .mpunct, body.light .katex .minner, body.light .katex .mtext {
   <!-- Chat Panel -->
   <div class="chat-panel" v-if="chatVisible">
     <div class="chat-header">
-      Chat with Domiclaw
-      <button class="chat-toggle-close" @click="chatVisible = false" title="Hide chat panel">&#171;</button>
+      <div style="display:flex;align-items:center;gap:8px;flex:1">
+        Chat with Domiclaw
+        <span v-if="taskMode === 'task' && currentTask"
+          style="display:inline-flex;align-items:center;gap:6px;font-size:12px;
+                 background:#e0f2fe;color:#0369a1;padding:2px 10px;border-radius:12px;font-weight:600">
+          &#9889; {{ currentTask.title }}
+        </span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <button v-if="taskMode === 'task'"
+          @click="endTask"
+          style="padding:3px 10px;font-size:12px;background:#dc2626;color:white;border:none;border-radius:4px;cursor:pointer"
+          title="结束当前任务">结束</button>
+        <button class="chat-toggle-close" @click="chatVisible = false" title="Hide chat panel">&#171;</button>
+      </div>
     </div>
     <div class="chat-messages" ref="chatMsgs">
       <div v-for="(m, i) in messages" :key="i"
@@ -972,6 +985,8 @@ Vue.createApp({
     const streaming = ref(false);
     const streamingText = ref('');
     const toolCallText = ref('');
+    const taskMode = ref('plan');
+    const currentTask = ref(null);
     const chatMsgs = ref(null);
 
     function scrollChat() {
@@ -1083,6 +1098,15 @@ Vue.createApp({
         streamingText.value = '';
         es.close();
       });
+      es.addEventListener('mode_change', (e) => {
+        const d = JSON.parse(e.data);
+        taskMode.value = d.mode;
+        if (d.taskStack && d.taskStack.length > 0) {
+          currentTask.value = d.taskStack[d.taskStack.length - 1];
+        } else {
+          currentTask.value = null;
+        }
+      });
       es.onerror = () => {
         if (streaming.value && streamingText.value) {
           addMessage('bot', streamingText.value);
@@ -1104,6 +1128,18 @@ Vue.createApp({
     async function logout() {
       await apiPost('/api/auth/logout', {});
       window.location.href = '/login.html';
+    }
+
+    async function endTask() {
+      try {
+        const r = await apiPost('/api/task/end', {});
+        if (r.status === 'ok') {
+          taskMode.value = r.mode;
+          if (r.mode === 'plan') currentTask.value = null;
+        }
+      } catch (err) {
+        console.error('Failed to end task:', err);
+      }
     }
 
     async function checkAuth() {
@@ -1487,7 +1523,7 @@ Vue.createApp({
       showSettings, theme, modelName, currentUser, logout, applyTheme,
       // Chat
       chatVisible, messages, chatInput, streaming, streamingText, chatMsgs,
-      sendMessage,
+      sendMessage, taskMode, currentTask, endTask,
       // Quiz
       quizVisible, quizQuestions, quizSessionId, quizSubject, quizLoading,
       quizStats, createQuiz, submitAnswer,

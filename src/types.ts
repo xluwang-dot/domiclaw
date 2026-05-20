@@ -52,6 +52,32 @@ export interface RegisteredTool {
     args: Record<string, unknown>,
     ctx: ToolContext,
   ) => Promise<string>;
+  /** 双模式任务系统元数据（可选） */
+  metadata?: {
+    taskPhase: "pre" | "during" | "post" | "neutral";
+    taskTypes: TaskType[];
+  };
+}
+
+// ============== 双模式任务系统 ==============
+
+export type TaskPhase = "pre" | "during" | "post" | "neutral";
+export type TaskType = "quiz" | "review" | "study" | "self_eval";
+
+export interface TaskStackItem {
+  taskId: string;
+  type: TaskType;
+  phase: TaskPhase;
+  title: string;
+  kpId?: number;
+  subjectId?: number;
+  startedAt: string;
+  context?: Record<string, unknown>;
+}
+
+export interface TaskState {
+  stack: TaskStackItem[];
+  active: boolean;
 }
 
 // ============== Agent Types ==============

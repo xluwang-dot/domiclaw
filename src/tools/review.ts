@@ -110,6 +110,7 @@ registerTool("get_due_reviews", {
 
     return parts.join("\n");
   },
+  metadata: { taskPhase: "pre", taskTypes: ["review"] },
 });
 
 registerTool("review_answer", {
@@ -170,6 +171,7 @@ registerTool("review_answer", {
 
     return response;
   },
+  metadata: { taskPhase: "during", taskTypes: ["review"] },
 });
 
 registerTool("get_study_stats", {
@@ -260,4 +262,5 @@ registerTool("get_study_stats", {
 
     return sections.join("\n");
   },
+  metadata: { taskPhase: "post", taskTypes: ["quiz", "review", "study"] },
 });

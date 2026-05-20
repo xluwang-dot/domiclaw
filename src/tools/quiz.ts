@@ -210,6 +210,7 @@ registerTool("create_quiz", {
 
     return response;
   },
+  metadata: { taskPhase: "pre", taskTypes: ["quiz", "self_eval"] },
 });
 
 registerTool("get_quiz_session", {
@@ -312,6 +313,7 @@ registerTool("get_quiz_session", {
 
     return response;
   },
+  metadata: { taskPhase: "during", taskTypes: ["quiz"] },
 });
 
 registerTool("record_answer", {
@@ -387,6 +389,7 @@ registerTool("record_answer", {
 
     return response;
   },
+  metadata: { taskPhase: "during", taskTypes: ["quiz"] },
 });
 
 registerTool("export_wrong_questions", {
@@ -432,6 +435,7 @@ registerTool("export_wrong_questions", {
 
     return out;
   },
+  metadata: { taskPhase: "post", taskTypes: ["quiz", "review"] },
 });
 
 /**

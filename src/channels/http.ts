@@ -5,7 +5,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
 
-import { NewMessage } from "../types.js";
+import { NewMessage, TaskStackItem, TaskType } from "../types.js";
 import { createSessionStore } from "../sessionStore.js";
 import { logger } from "../logger.js";
 import { runAgent, AgentOutput } from "../agent.js";
@@ -13,6 +13,7 @@ import { handleCommand } from "../commands.js";
 import { routeViaCache } from "../query-router.js";
 import { defaultLimiter } from "../rate-limit.js";
 import { formatMessages } from "../router.js";
+import { TaskEngine } from "../task/taskEngine.js";
 import {
   getAllSubjects,
   getKnowledgePointsBySubject,
@@ -632,6 +633,36 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     });
 
     res.status(202).json({ status: "processing" });
+  });
+
+  // POST /api/task/end — 前端"结束任务"按钮
+  app.post("/api/task/end", requireAuth, (req: Request, res: Response) => {
+    const userId = req.session!.userId!;
+    const state = TaskEngine.endTask(userId);
+    pushSse(userId, "mode_change", { mode: state.active ? "task" : "plan", taskStack: state.stack });
+    res.json({ status: "ok", mode: state.active ? "task" : "plan" });
+  });
+
+  // POST /api/task/start — 手动启动任务（前端备用）
+  app.post("/api/task/start", requireAuth, (req: Request, res: Response) => {
+    const userId = req.session!.userId!;
+    const { type, title, kp_id, subject_id } = req.body as Record<string, unknown>;
+    if (!type || !title) {
+      res.status(400).json({ error: "type and title required" });
+      return;
+    }
+    const task: TaskStackItem = {
+      taskId: `${type}_${Date.now()}_${userId}`,
+      type: type as TaskType,
+      phase: "pre",
+      title: title as string,
+      kpId: kp_id as number | undefined,
+      subjectId: subject_id as number | undefined,
+      startedAt: new Date().toISOString(),
+    };
+    TaskEngine.startTask(userId, task);
+    pushSse(userId, "mode_change", { mode: "task", taskStack: [task] });
+    res.json({ status: "ok", mode: "task", task });
   });
 
   // POST /api/bug-report

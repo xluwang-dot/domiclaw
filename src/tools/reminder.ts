@@ -35,6 +35,7 @@ registerTool("schedule_daily_review", {
 
     return `Daily review reminder scheduled at ${time} (ID: ${taskId}). I'll check in with you each day at that time.`;
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });
 
 registerTool("cancel_reminder", {
@@ -59,6 +60,7 @@ registerTool("cancel_reminder", {
       ? `Reminder ${taskId} cancelled.`
       : `Reminder ${taskId} not found or already cancelled.`;
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });
 
 registerTool("list_reminders", {
@@ -86,4 +88,5 @@ registerTool("list_reminders", {
       )
       .join("\n");
   },
+  metadata: { taskPhase: "neutral", taskTypes: [] },
 });

@@ -5,7 +5,7 @@ import path from "path";
 import { STORE_DIR } from "./config.js";
 import { logger } from "./logger.js";
 import { initAuthDb } from "./auth.js";
-import { NewMessage } from "./types.js";
+import { NewMessage, TaskState } from "./types.js";
 import { generateEmbedding, float32ToBlob, initEmbedder as initEmbedderForKP } from "./rag/embeddings/embeddingService.js";
 
 let db: Database.Database;
@@ -157,6 +157,7 @@ export function createSchema(database: Database.Database): void {
       topic TEXT,
       weak_areas TEXT,
       summary TEXT,
+      task_stack TEXT DEFAULT '[]',
       updated_at TEXT NOT NULL
     );
 
@@ -323,6 +324,7 @@ export function initDatabase(): void {
     `ALTER TABLE knowledge_points ADD COLUMN prerequisite_ids TEXT`,
     `ALTER TABLE knowledge_points ADD COLUMN related_ids TEXT`,
     `ALTER TABLE sys_knowledgepoints ADD COLUMN embedding BLOB`,
+    `ALTER TABLE user_sessioncontext ADD COLUMN task_stack TEXT DEFAULT '[]'`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -1484,7 +1486,7 @@ export function getStudyPlansByUser(userId: number): StudyPlanRow[] {
 
 export interface SessionContext {
   user_id: number; topic: string | null;
-  weak_areas: string | null; summary: string | null; updated_at: string;
+  weak_areas: string | null; summary: string | null; task_stack: string | null; updated_at: string;
 }
 
 export function getRecentMessages(
@@ -1501,8 +1503,34 @@ export function getRecentMessages(
 
 export function getSessionContext(userId: number): SessionContext | undefined {
   return db.prepare(
-    "SELECT user_id, topic, weak_areas, summary, updated_at FROM user_sessioncontext WHERE user_id = ?",
+    "SELECT user_id, topic, weak_areas, summary, task_stack, updated_at FROM user_sessioncontext WHERE user_id = ?",
   ).get(userId) as SessionContext | undefined;
+}
+
+export function getTaskState(userId: number): TaskState {
+  const ctx = getSessionContext(userId);
+  if (!ctx?.task_stack) return { stack: [], active: false };
+  try {
+    const stack = JSON.parse(ctx.task_stack);
+    return { stack, active: stack.length > 0 };
+  } catch {
+    return { stack: [], active: false };
+  }
+}
+
+export function setTaskState(userId: number, state: TaskState): void {
+  const now = new Date().toISOString();
+  const existing = getSessionContext(userId);
+  const taskStack = JSON.stringify(state.stack);
+  if (existing) {
+    db.prepare(
+      "UPDATE user_sessioncontext SET task_stack = ?, updated_at = ? WHERE user_id = ?",
+    ).run(taskStack, now, userId);
+  } else {
+    db.prepare(
+      "INSERT INTO user_sessioncontext (user_id, task_stack, updated_at) VALUES (?, ?, ?)",
+    ).run(userId, taskStack, now);
+  }
 }
 
 export function upsertSessionContext(

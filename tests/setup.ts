@@ -31,7 +31,7 @@ export function insertTestUser(
   const hash = "$2b$10$dummy"; // not used in tests
   const result = db
     .prepare(
-      "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+      "INSERT INTO sys_users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
     )
     .run(username, hash, role, new Date().toISOString());
   return result.lastInsertRowid as number;
@@ -46,7 +46,7 @@ export function insertTestSubject(
 ): number {
   const result = db
     .prepare(
-      "INSERT INTO subjects (name, created_at) VALUES (?, ?)",
+      "INSERT INTO sys_subjects (name, created_at) VALUES (?, ?)",
     )
     .run(name, new Date().toISOString());
   return result.lastInsertRowid as number;
@@ -64,7 +64,7 @@ export function insertTestKnowledgePoint(
   const now = new Date().toISOString();
   const result = db
     .prepare(
-      `INSERT INTO knowledge_points (subject_id, parent_id, title, content, level_type, sort_order, created_at, updated_at)
+      `INSERT INTO sys_knowledgepoints (subject_id, parent_id, title, content, level_type, sort_order, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'knowledge_point', 0, ?, ?)`,
     )
     .run(subjectId, parentId, title, title, now, now);
