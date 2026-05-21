@@ -17,6 +17,7 @@ import {
   isPlanCompleted,
   completePlanProgress,
   updateNotebook,
+  getPlanProgressWeakKps,
 } from "../db.js";
 
 registerTool("generate_study_plan", {
@@ -312,10 +313,38 @@ registerTool("submit_self_assessment", {
     if (!nextKp) {
       completePlanProgress(userId, subjectId);
       const stats = getPlanProgressStats(userId, subjectId);
-      return `✅ **摸底完成！** 共评估 ${stats.total} 个章节。
-掌握：${stats.mastered} | 不确定：${stats.unsure} | 不知道：${stats.unknown}
 
-系统已记录薄弱知识点，将自动纳入复习计划。我可以帮你查看薄弱点或直接进入学习！`;
+      // 自动生成复习计划（薄弱知识点）
+      const weakKps = getPlanProgressWeakKps(userId, subjectId);
+      if (weakKps.length > 0) {
+        const now = new Date();
+        const endDate = new Date(now);
+        endDate.setDate(endDate.getDate() + weakKps.length);
+        const planTasks = weakKps.map((wkp, i) => {
+          const d = new Date(now);
+          d.setDate(d.getDate() + i);
+          return {
+            day: i,
+            date: d.toISOString().slice(0, 10),
+            topic: wkp.kp_name,
+            task: `复习「${wkp.kp_name}」— ${wkp.status === "unsure" ? "巩固练习" : "从头学习"}`,
+            completed: false,
+          };
+        });
+        const label = weakKps.every(k => k.status === "unsure") ? "巩固" : "基础";
+        createStudyPlan(userId, `1号计划 — 薄弱点${label}复习`, planTasks,
+          now.toISOString().slice(0, 10), endDate.toISOString().slice(0, 10), subjectId);
+      }
+
+      let msg = `✅ **摸底完成！** 共评估 ${stats.total} 个章节。\n`;
+      msg += `掌握：${stats.mastered} | 不确定：${stats.unsure} | 不知道：${stats.unknown}\n\n`;
+      if (weakKps.length > 0) {
+        msg += `📋 已为 ${weakKps.length} 个薄弱知识点自动生成复习计划。\n`;
+        msg += `可以随时查看计划（/plan）或直接开始学习！`;
+      } else {
+        msg += `没有薄弱知识点，太棒了！可以开始正常学习了。`;
+      }
+      return msg;
     }
 
     const stats = getPlanProgressStats(userId, subjectId);

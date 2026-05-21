@@ -91,6 +91,20 @@ export class TaskEngine {
   }
 
   /**
+   * 构建任务项（不写入 DB，用于 inferTask 或嵌套创建）
+   */
+  static buildTaskItem(type: TaskType, title: string, context?: Record<string, unknown>): TaskStackItem {
+    return {
+      taskId: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type,
+      phase: "pre",
+      title,
+      startedAt: new Date().toISOString(),
+      context,
+    };
+  }
+
+  /**
    * 构建 system prompt 中的 [当前任务] 块
    */
   static buildTaskPrompt(task: TaskStackItem): string {

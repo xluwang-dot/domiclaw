@@ -202,6 +202,12 @@ export async function executeTool(
       logger.warn({ tool: name, taskType: currentTask.type }, msg);
       return `Error: ${msg}`;
     }
+    // 在 self_eval 任务中调 create_quiz → 推入嵌套 quiz 任务
+    if (name === "create_quiz" && currentTask.type === "self_eval") {
+      const kpId = args.knowledge_point as number | undefined;
+      const quizTask = TaskEngine.buildTaskItem("quiz", kpId ? `${currentTask.title} 测验` : "摸底测验");
+      TaskEngine.startTask(ctx.userId, quizTask);
+    }
     // 更新任务阶段
     TaskEngine.updatePhase(ctx.userId, "during");
   } else {

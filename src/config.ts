@@ -213,7 +213,7 @@ export const SESSION_SECRET =
 // ============== RAG / 向量检索配置 ==============
 
 export const ragConfig = {
-  vectorSearchEnabled: (process.env.VECTOR_SEARCH_ENABLED || envConfig.VECTOR_SEARCH_ENABLED) === "true",
+  vectorSearchEnabled: (process.env.VECTOR_SEARCH_ENABLED || envConfig.VECTOR_SEARCH_ENABLED || "true") === "true",
   embeddingModel: process.env.EMBEDDING_MODEL || envConfig.EMBEDDING_MODEL || "Xenova/bge-base-zh-v1.5",
   topK: parseInt(process.env.RAG_TOP_K || envConfig.RAG_TOP_K || "3", 10),
   hfMirror: process.env.HF_MIRROR || envConfig.HF_MIRROR || "https://hf-mirror.com",

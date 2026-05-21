@@ -1819,6 +1819,16 @@ export function getNextPendingKp(userId: number, subjectId: number): PlanProgres
   ).get(userId, subjectId) as PlanProgressRow | undefined;
 }
 
+export function getPlanProgressWeakKps(userId: number, subjectId: number): { kp_id: number; kp_name: string; status: string }[] {
+  return db.prepare(
+    `SELECT pp.kp_id, kp.title as kp_name, pp.status
+     FROM plan_progress pp
+     JOIN sys_knowledgepoints kp ON kp.id = pp.kp_id
+     WHERE pp.user_id = ? AND pp.subject_id = ? AND pp.status IN ('unsure', 'unknown')
+     ORDER BY pp.kp_id`,
+  ).all(userId, subjectId) as { kp_id: number; kp_name: string; status: string }[];
+}
+
 export function getAssessedKpCount(userId: number, subjectId: number): number {
   const row = db.prepare(
     "SELECT COUNT(*) as cnt FROM plan_progress WHERE user_id = ? AND subject_id = ? AND status != 'pending'",
