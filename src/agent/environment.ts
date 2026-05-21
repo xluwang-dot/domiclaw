@@ -3,7 +3,7 @@ import path from "path";
 
 import { DATA_DIR } from "../config.js";
 import { ToolContext } from "../types.js";
-import { getSessionContext, getWeakAreas } from "../db.js";
+import { getSessionContext, getWeakAreas, getStudyPlansByUser, getPlanProgressStats, isPlanCompleted } from "../db.js";
 import { getTool, getAllToolDefinitions } from "../tools/index.js";
 import { retrieveRelevant } from "../rag/index.js";
 import { logger } from "../logger.js";
@@ -92,6 +92,26 @@ export async function buildSystemPrompt(
     lines.push(TaskEngine.buildTaskPrompt(currentTask));
     lines.push("");
   }
+
+  // 注入用户计划状态
+  const plans = getStudyPlansByUser(userId);
+  const hasPlan = plans.length > 0;
+  const hasMathCompleted = isPlanCompleted(userId, 1);
+  lines.push("[用户计划状态]");
+  if (hasPlan) {
+    lines.push(`学习计划数：${plans.length}`);
+    const activePlan = plans[0];
+    const planTasks: { completed: boolean }[] = JSON.parse(activePlan.plan_data);
+    const done = planTasks.filter(t => t.completed).length;
+    lines.push(`最近计划：${activePlan.title}（${done}/${planTasks.length} 已完成）`);
+  } else {
+    lines.push("无学习计划。学生尚未进行1号计划摸底，也没有任何学习计划。");
+    lines.push('建议：如果学生说「想学习」「开始」「有什么可以做的」，主动建议进行1号计划摸底。');
+  }
+  if (hasMathCompleted) {
+    lines.push("数学1号计划摸底已完成，系统已生成复习计划。");
+  }
+  lines.push("");
 
   lines.push(instructions);
   lines.push("");

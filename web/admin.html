@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Domiclaw — Admin</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+<script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,sans-serif;background:#f0f0f0;color:#222;min-height:100vh}
@@ -563,7 +563,7 @@ const kps=ref([]),kpSubjectId=ref(''),kpLevelFilter=ref(''),allKps=ref([]),showK
 const kpForm=ref({subject_id:'',title:'',content:'',level_type:'knowledge_point',sort_order:0,alias:'',parent_id:null});
 const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null),kpImportFileInput=ref(null),kpImportErrorsDialog=ref(false),kpImportFileLoaded=ref(false);
 const expandedNodes=reactive({});
-function renderContent(text){if(!text)return'';let html=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,alt,src)=>{return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">`});html=html.replace(/\$\$([\s\S]+?)\$\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\$([^\$\n]+?)\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});return html}
+function renderContent(text){if(!text)return'';let html=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,alt,src)=>{return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">`});html=html.replace(/\\\[([\s\S]+?)\\\]/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\$\$([\s\S]+?)\$\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\\\((.+?)\\\)/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});html=html.replace(/\$([^\$\n]+?)\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});return html}
 function getKpName(id){const k=allKps.value.find(x=>x.id===id);return k?k.title:'KP#'+id}
 function toggleNode(id){expandedNodes[id]=!expandedNodes[id]}
 const treeRows=computed(()=>{const raw=kps.value||[];const map={};for(const k of raw)map[k.id]=k;const kids={};for(const k of raw){const pid=k.parent_id||0;if(!kids[pid])kids[pid]=[];kids[pid].push(k)}for(const key of Object.keys(kids)){kids[key].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)||a.id-b.id)}const lv=kpLevelFilter.value;const rows=[];function walk(pid,depth){const items=kids[pid]||[];for(const k of items){const has=kids[k.id]&&kids[k.id].length>0;rows.push({...k,_depth:depth,_hasChildren:has,_expanded:!!expandedNodes[k.id]});if(has&&expandedNodes[k.id])walk(k.id,depth+1)}}walk(0,0);if(lv)return rows.filter(r=>r.level_type===lv);return rows});

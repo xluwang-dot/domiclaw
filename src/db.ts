@@ -187,6 +187,17 @@ export function createSchema(database: Database.Database): void {
       last_hit_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS plan_progress (
+      user_id INTEGER NOT NULL,
+      subject_id INTEGER NOT NULL,
+      kp_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      assessed_at TEXT,
+      plan_completed TEXT,
+      PRIMARY KEY (user_id, subject_id, kp_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pp_user_subject ON plan_progress(user_id, subject_id);
+
     CREATE TABLE IF NOT EXISTS user_testlevelconfig (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       level INTEGER NOT NULL UNIQUE,
@@ -620,6 +631,12 @@ export function getKnowledgePointById(id: number): KnowledgePointRow | undefined
 export function getKnowledgePointsBySubject(subjectId: number): KnowledgePointRow[] {
   return db.prepare(
     `SELECT ${KP_SELECT} FROM sys_knowledgepoints WHERE subject_id = ? ORDER BY level_type, sort_order, title`,
+  ).all(subjectId) as KnowledgePointRow[];
+}
+
+export function getChaptersBySubject(subjectId: number): KnowledgePointRow[] {
+  return db.prepare(
+    `SELECT ${KP_SELECT} FROM sys_knowledgepoints WHERE subject_id = ? AND level_type = 'chapter' ORDER BY sort_order, title`,
   ).all(subjectId) as KnowledgePointRow[];
 }
 
@@ -1698,6 +1715,118 @@ export function getNotebookStats(userId: number): {
     weakness_cleared: Math.max(0, masteredCount - weakness_total),
   };
 }
+
+// ============== Plan Progress (1号计划摸底) ==============
+
+export interface PlanProgressRow {
+  user_id: number;
+  subject_id: number;
+  kp_id: number;
+  status: string;
+  assessed_at: string | null;
+  plan_completed: string | null;
+}
+
+export interface PlanProgressStats {
+  total: number;
+  assessed: number;
+  mastered: number;
+  unsure: number;
+  unknown: number;
+}
+
+export function getPlanProgress(userId: number, subjectId: number): PlanProgressRow[] {
+  return db.prepare(
+    "SELECT user_id, subject_id, kp_id, status, assessed_at, plan_completed FROM plan_progress WHERE user_id = ? AND subject_id = ? ORDER BY kp_id",
+  ).all(userId, subjectId) as PlanProgressRow[];
+}
+
+export function getPlanProgressByKp(userId: number, subjectId: number, kpId: number): PlanProgressRow | undefined {
+  return db.prepare(
+    "SELECT user_id, subject_id, kp_id, status, assessed_at, plan_completed FROM plan_progress WHERE user_id = ? AND subject_id = ? AND kp_id = ?",
+  ).get(userId, subjectId, kpId) as PlanProgressRow | undefined;
+}
+
+export function upsertPlanProgress(
+  userId: number, subjectId: number, kpId: number, status: string,
+): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO plan_progress (user_id, subject_id, kp_id, status, assessed_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, subject_id, kp_id) DO UPDATE SET
+       status = excluded.status,
+       assessed_at = excluded.assessed_at`,
+  ).run(userId, subjectId, kpId, status, now);
+}
+
+export function getPlanProgressStats(userId: number, subjectId: number): PlanProgressStats {
+  const rows = db.prepare(
+    "SELECT status, COUNT(*) as cnt FROM plan_progress WHERE user_id = ? AND subject_id = ? GROUP BY status",
+  ).all(userId, subjectId) as { status: string; cnt: number }[];
+
+  const stats: PlanProgressStats = { total: 0, assessed: 0, mastered: 0, unsure: 0, unknown: 0 };
+  for (const r of rows) {
+    stats.total += r.cnt;
+    if (r.status !== "pending") stats.assessed += r.cnt;
+    if (r.status === "mastered") stats.mastered = r.cnt;
+    else if (r.status === "unsure") stats.unsure = r.cnt;
+    else if (r.status === "unknown") stats.unknown = r.cnt;
+  }
+  // total 需要加上所有行（含 pending）
+  const allRows = db.prepare(
+    "SELECT COUNT(*) as cnt FROM plan_progress WHERE user_id = ? AND subject_id = ?",
+  ).get(userId, subjectId) as { cnt: number };
+  stats.total = allRows.cnt;
+  return stats;
+}
+
+export function completePlanProgress(userId: number, subjectId: number): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    "UPDATE plan_progress SET plan_completed = ? WHERE user_id = ? AND subject_id = ?",
+  ).run(now, userId, subjectId);
+}
+
+export function resetPlanProgress(userId: number, subjectId: number): void {
+  db.prepare(
+    "DELETE FROM plan_progress WHERE user_id = ? AND subject_id = ?",
+  ).run(userId, subjectId);
+}
+
+export function initPlanProgress(userId: number, subjectId: number, kpIds: number[]): void {
+  const insert = db.prepare(
+    "INSERT OR IGNORE INTO plan_progress (user_id, subject_id, kp_id, status) VALUES (?, ?, ?, 'pending')",
+  );
+  const tx = db.transaction(() => {
+    for (const kpId of kpIds) {
+      insert.run(userId, subjectId, kpId);
+    }
+  });
+  tx();
+}
+
+export function isPlanCompleted(userId: number, subjectId: number): boolean {
+  const row = db.prepare(
+    "SELECT plan_completed FROM plan_progress WHERE user_id = ? AND subject_id = ? AND plan_completed IS NOT NULL LIMIT 1",
+  ).get(userId, subjectId) as { plan_completed: string } | undefined;
+  return !!row;
+}
+
+export function getNextPendingKp(userId: number, subjectId: number): PlanProgressRow | undefined {
+  return db.prepare(
+    "SELECT user_id, subject_id, kp_id, status, assessed_at, plan_completed FROM plan_progress WHERE user_id = ? AND subject_id = ? AND status = 'pending' ORDER BY kp_id LIMIT 1",
+  ).get(userId, subjectId) as PlanProgressRow | undefined;
+}
+
+export function getAssessedKpCount(userId: number, subjectId: number): number {
+  const row = db.prepare(
+    "SELECT COUNT(*) as cnt FROM plan_progress WHERE user_id = ? AND subject_id = ? AND status != 'pending'",
+  ).get(userId, subjectId) as { cnt: number };
+  return row.cnt;
+}
+
+// ============== Test Level Config ==============
 
 export interface TestLevelConfig {
   level: number;

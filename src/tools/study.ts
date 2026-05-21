@@ -7,6 +7,16 @@ import {
   getStudyPlansByUser,
   markPlanTaskDone,
   getSubjectByName,
+  getChaptersBySubject,
+  getPlanProgress,
+  initPlanProgress,
+  upsertPlanProgress,
+  getPlanProgressStats,
+  getNextPendingKp,
+  getAssessedKpCount,
+  isPlanCompleted,
+  completePlanProgress,
+  updateNotebook,
 } from "../db.js";
 
 registerTool("generate_study_plan", {
@@ -191,6 +201,150 @@ registerTool("get_study_progress", {
     return response;
   },
   metadata: { taskPhase: "post", taskTypes: ["quiz", "review", "study"] },
+});
+
+registerTool("start_self_eval", {
+  definition: {
+    type: "function",
+    function: {
+      name: "start_self_eval",
+      description: "开始或恢复1号计划摸底。遍历该学科的章节知识点，引导学生进行自我评估。已有进度的从中断处继续。",
+      parameters: {
+        type: "object",
+        properties: {
+          subject_id: { type: "number", description: "学科 ID" },
+        },
+        required: ["subject_id"],
+      },
+    },
+  },
+  async execute(args, ctx) {
+    const subjectId = args.subject_id as number;
+    const userId = ctx.userId;
+
+    // 检查是否已完成
+    if (isPlanCompleted(userId, subjectId)) {
+      const stats = getPlanProgressStats(userId, subjectId);
+      return `该学科摸底已完成（已评估 ${stats.assessed}/${stats.total} 个知识点，${stats.mastered} 掌握，${stats.unsure} 不确定，${stats.unknown} 不知道）。如果想重新摸底，请先确认。`;
+    }
+
+    // 获取章节级知识点
+    const chapters = getChaptersBySubject(subjectId);
+    if (chapters.length === 0) {
+      return "该学科下没有找到章节知识点，无法开始摸底。";
+    }
+
+    // 检查是否有进度
+    const existing = getPlanProgress(userId, subjectId);
+    if (existing.length === 0) {
+      // 初始化摸底进度（用章节 ID）
+      initPlanProgress(userId, subjectId, chapters.map(c => c.id));
+    }
+
+    const nextKp = getNextPendingKp(userId, subjectId);
+    if (!nextKp) {
+      // 所有已评估
+      completePlanProgress(userId, subjectId);
+      const stats = getPlanProgressStats(userId, subjectId);
+      return `摸底已完成！共评估 ${stats.assessed} 个知识点：${stats.mastered} 掌握，${stats.unsure} 不确定，${stats.unknown} 不知道。系统已自动生成复习计划。`;
+    }
+
+    const stats = getPlanProgressStats(userId, subjectId);
+    const assessed = getAssessedKpCount(userId, subjectId);
+    const allKps = chapters.length;
+    const nextChapter = chapters.find(c => c.id === nextKp.kp_id);
+    const chapterName = nextChapter?.title || `知识点 #${nextKp.kp_id}`;
+
+    return `📋 **1号计划摸底**
+进度：已评估 ${assessed}/${allKps} 个章节（${stats.mastered} 掌握 / ${stats.unsure} 不确定 / ${stats.unknown} 不知道）
+
+当前章节：**${chapterName}**
+
+请自我评估你对「${chapterName}」的掌握程度：
+- **掌握了** — 很熟悉，能解题
+- **不确定** — 知道一些但不够自信
+- **不知道** — 还没学过或基本不会
+
+也可以说"做几道题试试"，我来出几题帮你判断。`;
+  },
+  metadata: { taskPhase: "pre", taskTypes: ["self_eval"] },
+});
+
+registerTool("submit_self_assessment", {
+  definition: {
+    type: "function",
+    function: {
+      name: "submit_self_assessment",
+      description: "提交对当前知识点的自我评估。评估选项：mastered（掌握了）、unsure（不确定）、unknown（不知道）。",
+      parameters: {
+        type: "object",
+        properties: {
+          kp_id: { type: "number", description: "知识点 ID" },
+          assessment: {
+            type: "string",
+            enum: ["mastered", "unsure", "unknown"],
+            description: "自我评估结果",
+          },
+          subject_id: { type: "number", description: "学科 ID" },
+        },
+        required: ["kp_id", "assessment", "subject_id"],
+      },
+    },
+  },
+  async execute(args, ctx) {
+    const kpId = args.kp_id as number;
+    const assessment = args.assessment as string;
+    const subjectId = args.subject_id as number;
+    const userId = ctx.userId;
+
+    // 更新评估
+    upsertPlanProgress(userId, subjectId, kpId, assessment);
+
+    // 如果掌握了，提升 notebook mastery
+    if (assessment === "mastered") {
+      updateNotebook(userId, subjectId, kpId, true);
+    } else if (assessment === "unknown") {
+      updateNotebook(userId, subjectId, kpId, false);
+    }
+
+    // 检查是否全部完成
+    const nextKp = getNextPendingKp(userId, subjectId);
+    if (!nextKp) {
+      completePlanProgress(userId, subjectId);
+      const stats = getPlanProgressStats(userId, subjectId);
+      return `✅ **摸底完成！** 共评估 ${stats.total} 个章节。
+掌握：${stats.mastered} | 不确定：${stats.unsure} | 不知道：${stats.unknown}
+
+系统已记录薄弱知识点，将自动纳入复习计划。我可以帮你查看薄弱点或直接进入学习！`;
+    }
+
+    const stats = getPlanProgressStats(userId, subjectId);
+    const assessed = getAssessedKpCount(userId, subjectId);
+    const chapters = getChaptersBySubject(subjectId);
+    const nextChapter = chapters.find(c => c.id === nextKp.kp_id);
+    const chapterName = nextChapter?.title || `知识点 #${nextKp.kp_id}`;
+
+    const assessLabels: Record<string, string> = {
+      mastered: "✅ 掌握了",
+      unsure: "❓ 不确定",
+      unknown: "📖 不知道",
+    };
+
+    return `${assessLabels[assessment] || assessment}，已记录。
+
+进度：${assessed}/${chapters.length} 个章节已评估
+掌握：${stats.mastered} | 不确定：${stats.unsure} | 不知道：${stats.unknown}
+
+接下来评估：**${chapterName}**
+
+请自我评估你对「${chapterName}」的掌握程度：
+- **掌握了**
+- **不确定**
+- **不知道**
+
+也可以说"做几道题试试"，我来出几题帮你判断。`;
+  },
+  metadata: { taskPhase: "during", taskTypes: ["self_eval"] },
 });
 
 /**

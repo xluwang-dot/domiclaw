@@ -16,6 +16,7 @@ export class TaskEngine {
       create_quiz: { type: "quiz", title: "测验" },
       get_due_reviews: { type: "review", title: "复习" },
       review_answer: { type: "review", title: "复习" },
+      start_self_eval: { type: "self_eval", title: "1号计划摸底" },
     };
 
     const mapped = taskMap[toolName];
@@ -102,6 +103,13 @@ export class TaskEngine {
       if (p.current !== undefined && p.total !== undefined) {
         lines.push(`进度：第 ${p.current}/${p.total} 步`);
       }
+    }
+    if (task.type === "self_eval") {
+      lines.push("你正在进行1号计划摸底，引导学生逐章节自我评估。");
+      lines.push("对每个章节，让学生选择：掌握了 / 不确定 / 不知道。");
+      lines.push("如果学生不确定某个知识点，可以调用 create_quiz 生成几道题试试。");
+      lines.push("使用 submit_self_assessment 工具记录评估结果。");
+      lines.push("全部章节评估完成后，系统会自动生成复习计划。");
     }
     lines.push("你当前处于任务模式，请专注于当前任务。");
     lines.push("如果用户提出不相关的问题，温和引导回当前任务。");
