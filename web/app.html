@@ -1032,6 +1032,10 @@ Vue.createApp({
           connectSSE();
         } else if (r.text) {
           addMessage('bot', r.text);
+          if (r.mode) {
+            taskMode.value = r.mode;
+            currentTask.value = r.currentTask || null;
+          }
           streaming.value = false;
         } else {
           addMessage('bot', 'Message sent. ' + (r.note || ''));

@@ -520,6 +520,21 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         const paramsStr = aqcResult.slice("__CREATE_QUIZ__:".length);
         logger.info({ paramsStr }, "[AQC] create_quiz 指令，转发至 Agent 直接执行");
         pushSse(userId, "status", { phase: "processing" });
+
+        // 确保任务模式激活（独立于 Agent 是否调工具）
+        const taskState = getTaskState(userId);
+        if (!taskState.active) {
+          const now = new Date().toISOString();
+          const task: TaskStackItem = {
+            taskId: `quiz_${Date.now()}_${userId}`,
+            type: "quiz",
+            phase: "pre",
+            title: "测验",
+            startedAt: now,
+          };
+          TaskEngine.startTask(userId, task);
+        }
+
         const directive = `[系统指令] 用户要求创建测验，参数：${paramsStr}。直接调用 create_quiz 工具传入这些参数，不要再询问用户确认或额外信息。`;
         const fullContext = directive + "\n\n" + formatMessages([msg]);
         const agentInput = {
@@ -543,11 +558,12 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
           storeMessage(botMsg, userId);
           onAgentProcessed?.(msg.timestamp);
           const taskState = getTaskState(userId);
-          if (taskState.active) {
-            pushSse(userId, "mode_change", { mode: "task", taskStack: taskState.stack });
-          }
+          const mode = taskState.active ? "task" : "plan";
+          const currentTask = taskState.active && taskState.stack.length > 0
+            ? taskState.stack[taskState.stack.length - 1]
+            : null;
           pushSse(userId, "done", { status: "success", text: output.result });
-          res.json({ status: "ok", text: output.result });
+          res.json({ status: "ok", text: output.result, mode, currentTask });
         } else {
           pushSse(userId, "error", { text: output.error || "Agent error" });
           res.json({ status: "error", error: output.error });
