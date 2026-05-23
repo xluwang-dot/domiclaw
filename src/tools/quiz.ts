@@ -1,4 +1,5 @@
 import { registerTool } from "./index.js";
+import { pushSse } from "../sseBus.js";
 import {
   createQuizSession,
   getAllSubjects,
@@ -199,6 +200,18 @@ registerTool("create_quiz", {
     });
 
     logger.info({ sessionId, questionCount: selected.length, userId: ctx.userId }, "[CQ] set from create_quiz");
+
+    // Push quiz_popup event for frontend popup
+    pushSse(ctx.userId, "quiz_popup", {
+      sessionId,
+      subject: subjectName,
+      questions: selected.map((q: any) => ({
+        id: q.id,
+        text: q.question_text,
+        type: q.question_type,
+        options: q.options,
+      })),
+    });
 
     // Return the full quiz with all questions
     let response = `Quiz started! Subject: ${subjectName}, Session ID: ${sessionId}, Questions: ${selected.length}\n\n`;

@@ -134,188 +134,89 @@
     </div>
   </div>
 
-  <!-- Quiz Panel Toggle (visible when hidden) -->
-  <button v-if="!quizVisible" class="quiz-toggle-btn" @click="quizVisible = true" title="Show quiz panel">
-    &#171;
-  </button>
-
-  <!-- Quiz Panel -->
-  <div class="quiz-panel" v-if="quizVisible">
-    <div class="quiz-header">
-      <h3>{{ quizSubject ? quizSubject + ' — Quiz' : 'Quiz Panel' }}</h3>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button @click="createQuiz" :disabled="quizLoading">
-          {{ quizLoading ? 'Creating...' : '+ New Quiz' }}
-        </button>
-        <button class="quiz-toggle-close" @click="quizVisible = false" title="Hide quiz panel">
-          &#187;
-        </button>
-      </div>
-    </div>
-    <div v-if="!quizQuestions.length && !quizLoading" class="quiz-empty">
-      <div>
-        No active quiz.<br>
-        Click <b>+ New Quiz</b> or ask Domiclaw:<br>
-        <i>"Create a quiz with 5 questions about Mathematics"</i>
-      </div>
-    </div>
-    <div v-if="quizLoading" class="quiz-empty">Loading quiz...</div>
-    <div class="quiz-list" v-if="quizQuestions.length">
-      <div v-for="(q, qi) in quizQuestions" :key="q.id"
-        class="question-card"
-        :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
-        <div class="q-header">
-          <span>Q{{ qi+1 }}. <span v-html="renderContent(q.text)"></span></span>
-          <span class="q-type">{{ q.type }}</span>
-        </div>
-        <div v-if="q.options && !q.answered" class="q-options">
-          <button v-for="(label, optKey) in q.options" :key="optKey"
-            class="q-option"
-            :class="{ selected: q.selectedOption === optKey }"
-            @click="q.selectedOption = optKey">
-            {{ optKey }}: {{ label }}
-          </button>
-        </div>
-        <div class="q-input-row" v-if="!q.answered">
-          <input v-model="q.studentAnswer"
-            :placeholder="q.type==='multiple_choice' ? 'Type option letter (A/B/C/D)' : 'Your answer...'"
-            @keyup.enter="submitAnswer(q, qi)" />
-          <button @click="submitAnswer(q, qi)"
-            :disabled="!q.studentAnswer && !q.selectedOption">
-            Submit
-          </button>
-        </div>
-        <div v-if="q.answered" class="q-result" :class="q.result">
-          {{ q.result === 'correct' ? 'Correct!' : 'Incorrect' }}
-          <template v-if="q.explanation"><br><small v-html="renderContent(q.explanation)"></small></template>
+  <!-- Quiz Popup (Agent-driven) -->
+  <div v-if="quizPopup.show" class="modal-overlay">
+    <div class="modal-box" style="max-width:700px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0">{{ quizPopup.subject }} — 测验</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="font-size:12px;color:#888">
+            <input type="checkbox" v-model="quizPopup.oneByOne" /> 逐题模式
+          </label>
         </div>
       </div>
-    </div>
-    <div class="quiz-summary" v-if="quizStats.total > 0">
-      <div>Progress: {{ quizStats.correct }}/{{ quizStats.total }}</div>
-      <div class="progress-bar">
-        <div class="progress-fill"
-          :style="{ width: (quizStats.total ? quizStats.correct/quizStats.total*100 : 0)+'%' }">
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Question Bank Panel Toggle -->
-  <button v-if="!kbVisible" class="kb-toggle-btn" @click="kbVisible = true; fetchMyQuestions()" title="My Question Bank">
-    My QBank
-  </button>
-
-  <!-- Question Bank Panel -->
-  <div class="kb-panel" v-if="kbVisible">
-    <div class="kb-header">
-      <h3>My Question Bank</h3>
-      <div style="display:flex;gap:8px">
-        <button @click="kbShowForm = !kbShowForm; editingQ = null" style="background:#0a84ff;color:#fff">
-          {{ kbShowForm ? 'Cancel' : '+ New Question' }}
-        </button>
-        <button @click="triggerImport" style="background:#555;color:#ccc">Import JSON</button>
-        <input type="file" ref="kbImportInput" accept=".json" style="display:none" @change="handleImportFile" />
-        <button class="quiz-toggle-close" @click="kbVisible = false" title="Hide question bank">&#187;</button>
-      </div>
-    </div>
-
-    <!-- Filters -->
-    <div class="kb-filters">
-      <select v-model="kbFilterSubject" @change="onKbFilterChange">
-        <option value="">All Subjects</option>
-        <option v-for="s in kbSubjects" :key="s.id" :value="s.id">{{ s.name }}</option>
-      </select>
-      <select v-model="kbFilterKpId" @change="fetchMyQuestions">
-        <option value="">All Knowledge Points</option>
-        <option v-for="k in kbFilterKps" :key="k.id" :value="k.id">{{ k.title }}</option>
-      </select>
-      <select v-model="kbFilterType" @change="fetchMyQuestions">
-        <option value="">All Types</option>
-        <option value="short_answer">Short Answer</option>
-        <option value="multiple_choice">Multiple Choice</option>
-        <option value="essay">Essay</option>
-      </select>
-    </div>
-
-    <!-- Add/Edit Form -->
-    <div class="kb-form" v-if="kbShowForm">
-      <div class="kb-form-row">
-        <div>
-          <label>Type</label>
-          <select v-model="kbForm.question_type">
-            <option value="short_answer">Short Answer</option>
-            <option value="multiple_choice">Multiple Choice</option>
-            <option value="essay">Essay</option>
-          </select>
-        </div>
-        <div>
-          <label>Difficulty</label>
-          <select v-model="kbForm.difficulty">
-            <option :value="1">1</option><option :value="2">2</option><option :value="3">3</option>
-            <option :value="4">4</option><option :value="5">5</option>
-          </select>
-        </div>
-      </div>
-      <div>
-        <label>Question</label>
-        <textarea v-model="kbForm.question_text" placeholder="Enter question text..."></textarea>
-      </div>
-      <div v-if="kbForm.question_type === 'multiple_choice'">
-        <label>Options (JSON: {"A": "option A", "B": "option B"})</label>
-        <input v-model="kbForm.options" placeholder='{"A": "...", "B": "..."}' />
-      </div>
-      <div>
-        <label>Answer</label>
-        <input v-model="kbForm.answer" placeholder="Correct answer" />
-      </div>
-      <div>
-        <label>Explanation (optional)</label>
-        <input v-model="kbForm.explanation" placeholder="Why this answer is correct" />
-      </div>
-      <div>
-        <label>Knowledge Point</label>
-        <select v-model="kbForm.knowledge_point_id">
-          <option :value="null">None</option>
-          <option v-for="k in kbAllKps" :key="k.id" :value="k.id">{{ k.title }}</option>
-        </select>
-      </div>
-      <div class="kb-form-actions">
-        <button class="btn-cancel" @click="kbShowForm = false; editingQ = null">Cancel</button>
-        <button @click="saveMyQuestion" style="background:#0a84ff;color:#fff">
-          {{ editingQ ? 'Update' : 'Create' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Question List -->
-    <div class="kb-list" v-if="!kbShowForm">
-      <div v-if="kbQuestions.length === 0" class="kb-empty">
-        <div>
-          No questions yet.<br>
-          Click <b>+ New Question</b> or <b>Import JSON</b> to add your own questions.
-        </div>
-      </div>
-      <div class="kb-item" v-for="q in kbQuestions" :key="q.id">
-        <div class="kb-item-text">
-          <div v-html="renderContent(q.question_text.substring(0, 120) + (q.question_text.length > 120 ? '...' : ''))"></div>
-          <div class="kb-item-meta">
-            [{{ q.question_type }}] {{ q.status }}
-            <span v-if="q.knowledge_point_id"> | KP: {{ getKpName(q.knowledge_point_id) }}</span>
+      <!-- All questions mode -->
+      <div v-if="!quizPopup.oneByOne">
+        <div v-for="(q, qi) in quizPopup.questions" :key="q.id" class="modal-q"
+          :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
+          <div class="modal-q-text">
+            Q{{ qi+1 }}. [{{ q.type }}] <span v-html="renderContent(q.text)"></span>
+          </div>
+          <div v-if="q.type === 'choice' && !q.answered" class="modal-q-options">
+            <button v-for="(label, k) in q.options" :key="k" class="modal-q-option"
+              :class="{ selected: q.selected === k }" @click="q.selected = k">{{ k }}: {{ label }}</button>
+          </div>
+          <div v-if="q.type === 'fill' && !q.answered" class="modal-q-input">
+            <input v-model="q.answer" placeholder="请输入答案" @keyup.enter="submitQuizAnswer(q)" />
+          </div>
+          <div v-if="(q.type === 'calculate' || q.type === 'proof') && !q.answered" class="modal-q-calc">
+            <textarea v-model="q.answer" placeholder="请输入解题过程（可选）" rows="2"></textarea>
+            <div style="margin-top:6px">
+              <label style="font-size:12px;color:#888;cursor:pointer">
+                📷 上传手写图片
+                <input type="file" accept="image/*" style="display:none" @change="e => handleQuizImage(q, e)" />
+              </label>
+              <img v-if="q.imageUrl" :src="q.imageUrl" style="max-width:200px;max-height:150px;margin-top:4px;border-radius:4px;border:1px solid #444" />
+            </div>
+          </div>
+          <div v-if="q.answered" class="modal-q-result" :class="q.result">
+            {{ q.result === 'correct' ? '✅ 正确' : '❌ 错误' }}
+            <template v-if="q.explanation"><br><small v-html="renderContent(q.explanation)"></small></template>
           </div>
         </div>
-        <div class="kb-item-actions">
-          <button @click="editMyQuestion(q)" style="background:#0a84ff;color:#fff">Edit</button>
-          <button @click="deleteMyQuestion(q.id)" style="background:#a33;color:#fff">Del</button>
+      </div>
+      <!-- One-by-one mode -->
+      <div v-if="quizPopup.oneByOne && quizPopup.questions.length">
+        <div class="modal-q"
+          :class="{ correct: currentQuizQ.result==='correct', wrong: currentQuizQ.result==='wrong' }">
+          <div class="modal-q-text">
+            Q{{ quizPopup.currentIndex+1 }}/{{ quizPopup.questions.length }}. [{{ currentQuizQ.type }}]
+            <span v-html="renderContent(currentQuizQ.text)"></span>
+          </div>
+          <div v-if="currentQuizQ.type === 'choice' && !currentQuizQ.answered" class="modal-q-options">
+            <button v-for="(label, k) in currentQuizQ.options" :key="k" class="modal-q-option"
+              :class="{ selected: currentQuizQ.selected === k }" @click="currentQuizQ.selected = k">{{ k }}: {{ label }}</button>
+          </div>
+          <div v-if="currentQuizQ.type === 'fill' && !currentQuizQ.answered" class="modal-q-input">
+            <input v-model="currentQuizQ.answer" placeholder="请输入答案" @keyup.enter="submitQuizAnswer(currentQuizQ)" />
+          </div>
+          <div v-if="(currentQuizQ.type === 'calculate' || currentQuizQ.type === 'proof') && !currentQuizQ.answered" class="modal-q-calc">
+            <textarea v-model="currentQuizQ.answer" placeholder="请输入解题过程（可选）" rows="2"></textarea>
+            <div style="margin-top:6px">
+              <label style="font-size:12px;color:#888;cursor:pointer">
+                📷 上传手写图片
+                <input type="file" accept="image/*" style="display:none" @change="e => handleQuizImage(currentQuizQ, e)" />
+              </label>
+              <img v-if="currentQuizQ.imageUrl" :src="currentQuizQ.imageUrl" style="max-width:200px;max-height:150px;margin-top:4px;border-radius:4px;border:1px solid #444" />
+            </div>
+          </div>
+          <div v-if="currentQuizQ.answered" class="modal-q-result" :class="currentQuizQ.result">
+            {{ currentQuizQ.result === 'correct' ? '✅ 正确' : '❌ 错误' }}
+            <template v-if="currentQuizQ.explanation"><br><small v-html="renderContent(currentQuizQ.explanation)"></small></template>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button v-if="!currentQuizQ.answered" @click="skipQuizQuestion" style="background:#555;color:#ccc">跳过</button>
+          <button v-if="!currentQuizQ.answered" @click="submitQuizAnswer(currentQuizQ)" :disabled="!currentQuizQ.answer && !currentQuizQ.selected && !currentQuizQ.imageUrl"
+            style="background:#0a84ff;color:#fff">提交</button>
+          <button v-if="currentQuizQ.answered && quizPopup.currentIndex < quizPopup.questions.length - 1"
+            @click="quizPopup.currentIndex++" style="background:#0a84ff;color:#fff">下一题</button>
         </div>
       </div>
-    </div>
-
-    <!-- Pagination -->
-    <div class="kb-pagination" v-if="kbTotal > kbLimit && !kbShowForm">
-      <button @click="kbPage--; fetchMyQuestions()" :disabled="kbPage <= 1">Prev</button>
-      <span>{{ kbPage }} / {{ Math.ceil(kbTotal / kbLimit) }} ({{ kbTotal }} total)</span>
-      <button @click="kbPage++; fetchMyQuestions()" :disabled="kbPage * kbLimit >= kbTotal">Next</button>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button @click="submitAllQuiz" style="background:#0a84ff;color:#fff"
+          :disabled="!quizPopup.questions.some(q => q.answered)">交卷</button>
+      </div>
     </div>
   </div>
 
@@ -335,7 +236,7 @@
               :class="{ selected: q.selected === k }" @click="q.selected = k">{{ k }}: {{ label }}</button>
           </div>
           <div v-if="!q.answered" class="modal-q-input">
-            <input v-model="q.studentAnswer" :placeholder="q.type==='multiple_choice'?'Type letter A/B/C/D':'Your answer'"
+            <input v-model="q.studentAnswer" :placeholder="q.type==='choice'?'Type letter A/B/C/D':'Your answer'"
               @keyup.enter="submitKpAnswer(q, qi)" />
             <button @click="submitKpAnswer(q, qi)" style="background:#0a84ff;color:#fff">Submit</button>
           </div>
@@ -603,19 +504,6 @@ Vue.createApp({
       streamingText.value = '';
       toolCallText.value = '';
 
-      // Check if it's a quiz creation request
-      const quizMatch = text.match(/create\s+(?:a\s+)?quiz\s+(?:with\s+)?(\d+)?\s*(?:questions?\s+)?(?:about\s+)?(.+)/i);
-      if (quizMatch) {
-        const count = parseInt(quizMatch[1]) || 5;
-        const subject = quizMatch[2]?.trim();
-        if (subject) {
-          addMessage('thinking', `Creating a ${count}-question quiz about ${subject}...`);
-          await createQuizDirect(subject, count);
-          streaming.value = false;
-          return;
-        }
-      }
-
       // General message — send to agent via SSE
       try {
         const r = await apiPost('/api/message', { text });
@@ -713,9 +601,19 @@ Vue.createApp({
       };
     }
 
-    // ──────── Quiz State ────────
-    const quizQuestions = ref([]);
-    const quizSessionId = ref(null);
+    // ──────── Quiz Popup State (Agent-driven) ────────
+    const quizPopup = ref({
+      show: false,
+      subject: '',
+      sessionId: null,
+      questions: [],
+      oneByOne: false,
+      currentIndex: 0,
+    });
+
+    const currentQuizQ = computed(() => {
+      return quizPopup.value.questions[quizPopup.value.currentIndex] || {};
+    });
     const showSettings = ref(false);
     const theme = ref(localStorage.getItem('domiclaw-theme') || 'light');
     const modelName = ref(localStorage.getItem('domiclaw-model') || '');
@@ -759,26 +657,6 @@ Vue.createApp({
     applyTheme();
 
     const chatVisible = ref(true);
-    const quizVisible = ref(true);
-    const quizSubject = ref('');
-    const quizLoading = ref(false);
-
-    // ── Question Bank State ──
-    const kbVisible = ref(false);
-    const kbShowForm = ref(false);
-    const editingQ = ref(null);
-    const kbForm = ref({ question_type: 'short_answer', difficulty: 1, question_text: '', answer: '', explanation: '', options: '', knowledge_point_id: null });
-    const kbQuestions = ref([]);
-    const kbTotal = ref(0);
-    const kbPage = ref(1);
-    const kbLimit = ref(20);
-    const kbFilterSubject = ref('');
-    const kbFilterKpId = ref('');
-    const kbFilterType = ref('');
-    const kbSubjects = ref([]);
-    const kbFilterKps = ref([]);
-    const kbAllKps = ref([]);
-    const kbImportInput = ref(null);
 
     // ── Mastery map: kp_id → { mastery, total_wrong }
     const kpMasteryMap = ref({});
@@ -799,179 +677,86 @@ Vue.createApp({
       } catch (e) { console.error('fetchMastery', e); }
     }
 
-    const quizStats = computed(() => {
-      const total = quizQuestions.value.length;
-      const correct = quizQuestions.value.filter(q => q.result === 'correct').length;
-      return { total, correct };
-    });
+    // ── Quiz Popup Methods ──
 
-    async function createQuizDirect(subject, count) {
-      quizLoading.value = true;
-      try {
-        const data = await apiPost('/api/quiz/create', {
-          subject, question_count: count,
-        });
-        if (data.error) {
-          addMessage('bot', `Quiz creation failed: ${data.error}`);
-          return;
-        }
-        quizSessionId.value = data.session_id;
-        quizSubject.value = data.subject;
-        quizQuestions.value = (data.questions || []).map(q => ({
-          ...q,
-          studentAnswer: '',
-          selectedOption: null,
-          answered: false,
-          result: null,
-          explanation: null,
-        }));
-        addMessage('bot',
-          `Quiz created! ${data.questions.length} questions about ${data.subject}. Answer them in the quiz panel.`);
-      } catch (e) {
-        addMessage('bot', 'Quiz error: ' + e.message);
-      } finally {
-        quizLoading.value = false;
-      }
-    }
-
-    async function createQuiz() {
-      // Prompt-style: ask the model
-      const text = `Create a quiz with 5 questions about ${quizSubject.value || 'Mathematics'}`;
-      addMessage('user', text);
-      streaming.value = true;
-      streamingText.value = '';
-      toolCallText.value = '';
-      // Try direct creation first
-      await createQuizDirect(quizSubject.value || 'Mathematics', 5);
-      streaming.value = false;
-    }
-
-    async function submitAnswer(q, qi) {
-      const answer = q.selectedOption || q.studentAnswer;
-      if (!answer) return;
-
-      try {
-        const data = await apiPost('/api/quiz/answer', {
-          session_id: quizSessionId.value,
-          question_id: q.id,
-          answer,
-        });
-        q.answered = true;
-        q.result = data.correct ? 'correct' : 'wrong';
-        q.explanation = data.explanation;
-        fetchMastery(); // refresh KP mastery colors after each answer
-      } catch (e) {
-        console.error('submitAnswer', e);
-      }
-    }
-
-    // ── Question Bank Methods ──
-
-    async function fetchKbData() {
-      try {
-        const [subjects, kps] = await Promise.all([
-          apiGet('/api/subjects'),
-          apiGet('/api/knowledge-points'),
-        ]);
-        kbSubjects.value = subjects || [];
-        kbAllKps.value = kps || [];
-      } catch (e) { console.error('fetchKbData', e); }
-    }
-
-    function onKbFilterChange() {
-      kbPage.value = 1;
-      kbFilterKpId.value = '';
-      if (kbFilterSubject.value) {
-        apiGet('/api/knowledge-points?subject_id=' + kbFilterSubject.value).then(d => {
-          kbFilterKps.value = d || [];
-        });
-      } else {
-        kbFilterKps.value = [];
-      }
-      fetchMyQuestions();
-    }
-
-    async function fetchMyQuestions() {
-      try {
-        const params = new URLSearchParams();
-        params.set('page', kbPage.value);
-        params.set('limit', kbLimit.value);
-        if (kbFilterKpId.value) params.set('kp_id', kbFilterKpId.value);
-        if (kbFilterType.value) params.set('type', kbFilterType.value);
-        const data = await apiGet('/api/my/questions?' + params.toString());
-        kbQuestions.value = data.questions || [];
-        kbTotal.value = data.total || 0;
-      } catch (e) { console.error('fetchMyQuestions', e); }
-    }
-
-    async function saveMyQuestion() {
-      const f = kbForm.value;
-      const body = {
-        question_text: f.question_text,
-        answer: f.answer,
-        question_type: f.question_type,
-        difficulty: Number(f.difficulty),
-        explanation: f.explanation || undefined,
-        options: f.options || undefined,
-        knowledge_point_id: f.knowledge_point_id || undefined,
-      };
-      try {
-        if (editingQ.value) {
-          await apiPut('/api/my/questions/' + editingQ.value.id, body);
-        } else {
-          await apiPost('/api/my/questions', body);
-        }
-        kbShowForm.value = false;
-        editingQ.value = null;
-        kbForm.value = { question_type: 'short_answer', difficulty: 1, question_text: '', answer: '', explanation: '', options: '', knowledge_point_id: null };
-        await fetchMyQuestions();
-      } catch (e) { console.error('saveMyQuestion', e); }
-    }
-
-    function editMyQuestion(q) {
-      editingQ.value = q;
-      kbForm.value = {
-        question_type: q.question_type || 'short_answer',
-        difficulty: q.difficulty || 1,
-        question_text: q.question_text || '',
-        answer: q.answer || '',
-        explanation: q.explanation || '',
-        options: q.options || '',
-        knowledge_point_id: q.knowledge_point_id || null,
-      };
-      kbShowForm.value = true;
-    }
-
-    async function deleteMyQuestion(id) {
-      if (!confirm('Delete this question?')) return;
-      try {
-        await apiDelete('/api/my/questions/' + id);
-        await fetchMyQuestions();
-      } catch (e) { console.error('deleteMyQuestion', e); }
-    }
-
-    function triggerImport() {
-      kbImportInput.value?.click();
-    }
-
-    async function handleImportFile(e) {
-      const file = e.target.files?.[0];
+    function handleQuizImage(q, event) {
+      const file = event.target.files[0];
       if (!file) return;
-      try {
-        const text = await file.text();
-        const items = JSON.parse(text);
-        const data = await apiPost('/api/my/questions/import', items);
-        alert('Imported ' + data.imported + ' question(s).');
-        await fetchMyQuestions();
-        e.target.value = '';
-      } catch (err) {
-        alert('Import failed: ' + (err.message || 'Invalid JSON'));
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        q.imageUrl = e.target.result;
+        q.imageFile = file;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function submitQuizAnswer(q) {
+      const answer = q.selected || q.answer;
+      if (!answer && !q.imageUrl) return;
+      q.answered = true;
+      // Will be graded on submitAllQuiz
+      q.result = 'pending';
+    }
+
+    function skipQuizQuestion() {
+      const popup = quizPopup.value;
+      if (popup.currentIndex < popup.questions.length - 1) {
+        popup.currentIndex++;
       }
     }
 
-    function getKpName(kpId) {
-      const kp = kbAllKps.value.find(k => k.id === kpId);
-      return kp ? kp.title : 'KP#' + kpId;
+    async function submitAllQuiz() {
+      const popup = quizPopup.value;
+      const answers = popup.questions.map(q => ({
+        questionId: q.id,
+        answer: q.selected || q.answer || '',
+        imageUrl: q.imageUrl || null,
+      }));
+      try {
+        const data = await apiPost('/api/quiz/submit-batch', {
+          sessionId: popup.sessionId,
+          answers,
+        });
+        if (data.results) {
+          for (const r of data.results) {
+            const q = popup.questions.find(qq => qq.id === r.questionId);
+            if (q) {
+              q.answered = true;
+              q.result = r.correct ? 'correct' : 'wrong';
+              q.explanation = r.explanation;
+            }
+          }
+        }
+        fetchMastery();
+      } catch (e) {
+        console.error('submitAllQuiz', e);
+      }
+    }
+
+    // ── SSE: Listen for quiz_popup events ──
+    function setupQuizPopupListener() {
+      const es = new EventSource('/api/stream');
+      es.addEventListener('quiz_popup', (e) => {
+        const data = JSON.parse(e.data);
+        quizPopup.value = {
+          show: true,
+          subject: data.subject || '',
+          sessionId: data.sessionId,
+          questions: (data.questions || []).map(q => ({
+            ...q,
+            options: typeof q.options === 'string' ? JSON.parse(q.options || '{}') : (q.options || {}),
+            answer: '',
+            selected: null,
+            answered: false,
+            result: null,
+            explanation: null,
+            imageUrl: null,
+          })),
+          oneByOne: false,
+          currentIndex: 0,
+        };
+      });
+      // Don't close on done - keep listening for future popups
     }
 
     // ── KP Quiz Modal ──
@@ -1067,8 +852,8 @@ Vue.createApp({
     onMounted(async () => {
       await checkAuth();
       fetchGraph();
-      fetchKbData();
       fetchMastery();
+      setupQuizPopupListener();
       addMessage('bot', '你好！我是豆米虾，你的专属学习伙伴。有什么我可以帮你的吗？');
     });
 
@@ -1084,19 +869,14 @@ Vue.createApp({
       // Chat
       chatVisible, messages, chatInput, streaming, streamingText, chatMsgs,
       sendMessage, taskMode, currentTask, endTask,
-      // Quiz
-      quizVisible, quizQuestions, quizSessionId, quizSubject, quizLoading,
-      quizStats, createQuiz, submitAnswer,
-      // Question Bank
-      kbVisible, kbShowForm, editingQ, kbForm, kbQuestions, kbTotal, kbPage, kbLimit,
-      kbFilterSubject, kbFilterKpId, kbFilterType, kbSubjects, kbFilterKps, kbAllKps,
-      kbImportInput,
-      fetchMyQuestions, saveMyQuestion, editMyQuestion, deleteMyQuestion,
-      triggerImport, handleImportFile, onKbFilterChange, getKpName, renderContent,
+      // Quiz Popup (Agent-driven)
+      quizPopup, currentQuizQ,
+      handleQuizImage, submitQuizAnswer, skipQuizQuestion, submitAllQuiz,
       // KP Quiz
       expandedSubjects, kpModal, visibleNodes, visibleEdges,
       openKpQuizModal, closeKpModal, refreshKpQuiz, submitKpAnswer,
       toggleExplanation, finishKpQuiz,
+      renderContent,
     };
   }
 }).mount('#app');

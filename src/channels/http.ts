@@ -14,6 +14,7 @@ import { routeViaCache } from "../query-router.js";
 import { defaultLimiter } from "../rate-limit.js";
 import { formatMessages } from "../router.js";
 import { TaskEngine } from "../task/taskEngine.js";
+import { registerSseHandler } from "../sseBus.js";
 import {
   getAllSubjects,
   getKnowledgePointsBySubject,
@@ -72,6 +73,7 @@ import {
   MODEL_NAME,
   MODEL_BASE_URL,
   MODEL_API_KEY,
+  visionConfig,
 } from "../config.js";
 import {
   createUser,
@@ -117,6 +119,9 @@ export function pushSse(userId: number, event: string, data: unknown): void {
     res.write(payload);
   }
 }
+
+// Register with SSE bus for tools to use
+registerSseHandler(pushSse);
 
 // ---------- Graph data helpers ----------
 
@@ -869,6 +874,114 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       explanation: question.explanation,
       answered_count: answers.length,
     });
+  });
+
+  // POST /api/quiz/submit-batch — 批量提交测验答案
+  app.post("/api/quiz/submit-batch", requireAuth, async (req: Request, res: Response) => {
+    const userId = req.session.userId!;
+    const body = req.body as Record<string, unknown>;
+    const sessionId = body.sessionId as number;
+    const answers = body.answers as Array<{ questionId: number; answer: string; imageUrl?: string }>;
+
+    if (!sessionId || !answers || !Array.isArray(answers)) {
+      res.status(400).json({ error: "sessionId and answers array required" });
+      return;
+    }
+
+    const results = [];
+    for (const a of answers) {
+      const question = getQuestionById(a.questionId);
+      if (!question) continue;
+
+      let correct = false;
+      let subjectId = 0;
+      if (question.knowledge_point_id) {
+        const kp = getKnowledgePointById(question.knowledge_point_id);
+        if (kp) subjectId = kp.subject_id;
+      }
+
+      if (a.imageUrl && visionConfig.enabled) {
+        // TODO: 调用视觉模型分析图片
+        // 暂时按文本答案判卷
+        const sa = (a.answer || "").trim().toLowerCase();
+        const ca = question.answer.trim().toLowerCase();
+        correct = question.question_type === "multiple_choice" ? sa === ca : sa.includes(ca) || ca.includes(sa);
+      } else {
+        const sa = (a.answer || "").trim().toLowerCase();
+        const ca = question.answer.trim().toLowerCase();
+        correct = question.question_type === "multiple_choice" ? sa === ca : sa.includes(ca) || ca.includes(sa);
+      }
+
+      recordQuizAnswer(sessionId, subjectId, a.questionId, a.answer || "", correct);
+      if (!correct) recordWrongQuestion(a.questionId, userId, subjectId);
+
+      results.push({ questionId: a.questionId, correct, explanation: question.explanation });
+    }
+
+    res.json({ results });
+  });
+
+  // POST /api/vision/analyze — 图片分析（视觉模型）
+  app.post("/api/vision/analyze", requireAuth, async (req: Request, res: Response) => {
+    if (!visionConfig.enabled) {
+      res.status(400).json({ error: "Vision model not enabled" });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const imageBase64 = body.imageBase64 as string;
+    const questionText = (body.questionText as string) || "";
+
+    if (!imageBase64) {
+      res.status(400).json({ error: "imageBase64 required" });
+      return;
+    }
+
+    try {
+      // 调用视觉模型 API
+      const prompt = `请分析这张图片中的数学题目。${questionText ? `题目文本：${questionText}` : ""}
+请识别图片中的手写内容，并给出：
+1. 识别出的答案
+2. 答案是否正确（如果能判断的话）
+
+以 JSON 格式返回：{ "answer": "识别出的答案", "confidence": 0.0-1.0, "correct": true/false }`;
+
+      const response = await fetch(`${visionConfig.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${visionConfig.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: visionConfig.modelName,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+              ],
+            },
+          ],
+          max_tokens: 1024,
+        }),
+      });
+
+      const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+      const content = data.choices?.[0]?.message?.content || "";
+
+      // 尝试解析 JSON
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const result = JSON.parse(jsonMatch[0]);
+        res.json(result);
+      } else {
+        res.json({ answer: content, confidence: 0.5, correct: null });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
   });
 
   // GET /api/knowledge-points (public auth-required, for question bank selector)

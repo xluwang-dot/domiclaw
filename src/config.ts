@@ -35,6 +35,10 @@ const envConfig = readEnvFile([
   "EMBEDDING_MODEL", // 嵌入模型名称
   "RAG_TOP_K", // RAG 返回结果数
   "HF_MIRROR", // HF 镜像地址
+  "VISION_MODEL_ENABLED", // 启用视觉模型
+  "VISION_MODEL_NAME", // 视觉模型名称
+  "VISION_MODEL_BASE_URL", // 视觉模型 API 地址
+  "VISION_MODEL_API_KEY", // 视觉模型 API 密钥
 ]);
 
 // ============== 核心配置 ==============
@@ -217,6 +221,15 @@ export const ragConfig = {
   embeddingModel: process.env.EMBEDDING_MODEL || envConfig.EMBEDDING_MODEL || "Xenova/bge-base-zh-v1.5",
   topK: parseInt(process.env.RAG_TOP_K || envConfig.RAG_TOP_K || "3", 10),
   hfMirror: process.env.HF_MIRROR || envConfig.HF_MIRROR || "https://hf-mirror.com",
+};
+
+// ============== 视觉模型配置 ==============
+
+export const visionConfig = {
+  enabled: (process.env.VISION_MODEL_ENABLED || envConfig.VISION_MODEL_ENABLED || "false") === "true",
+  modelName: process.env.VISION_MODEL_NAME || envConfig.VISION_MODEL_NAME || "MiMo-V2.5",
+  baseUrl: process.env.VISION_MODEL_BASE_URL || envConfig.VISION_MODEL_BASE_URL || "https://api.xiaomi.com/v1",
+  apiKey: process.env.VISION_MODEL_API_KEY || envConfig.VISION_MODEL_API_KEY || "",
 };
 
 // ============== 触发词配置 ==============
