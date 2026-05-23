@@ -1583,6 +1583,40 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     }
   });
 
+  // Serve CSS from web/css/
+  app.get("/css/{*relPath}", (req: Request, res: Response) => {
+    const relPathRaw = (req.params as { relPath: string[] | string }).relPath;
+    const relPath = Array.isArray(relPathRaw) ? relPathRaw.join("/") : relPathRaw;
+    if (!relPath || relPath.includes("..")) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const filePath = path.join(WEB_DIR, "css", relPath);
+    try {
+      res.set("Content-Type", "text/css; charset=utf-8");
+      res.send(fs.readFileSync(filePath));
+    } catch {
+      res.status(404).json({ error: "Asset not found" });
+    }
+  });
+
+  // Serve JS modules from web/js/
+  app.get("/js/{*relPath}", (req: Request, res: Response) => {
+    const relPathRaw = (req.params as { relPath: string[] | string }).relPath;
+    const relPath = Array.isArray(relPathRaw) ? relPathRaw.join("/") : relPathRaw;
+    if (!relPath || relPath.includes("..")) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const filePath = path.join(WEB_DIR, "js", relPath);
+    try {
+      res.set("Content-Type", "application/javascript; charset=utf-8");
+      res.send(fs.readFileSync(filePath));
+    } catch {
+      res.status(404).json({ error: "Asset not found" });
+    }
+  });
+
   // Serve images from web/images/
   app.get("/images/{*relPath}", requireAuth, (req: Request, res: Response) => {
     const relPathRaw = (req.params as { relPath: string[] | string }).relPath;

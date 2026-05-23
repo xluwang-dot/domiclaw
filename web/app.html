@@ -6,390 +6,9 @@
 <title>Domiclaw — Study Assistant</title>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="/css/app.css">
 <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
 <script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #1e1e1e; color: #eee; overflow: hidden; height: 100vh;
-}
-
-/* ── Canvas Layer (z=0) ── */
-.canvas-layer {
-  position: fixed; inset: 0; z-index: 0;
-}
-.canvas-transform {
-  position: absolute; top: 0; left: 0; width: 5000px; height: 5000px;
-  will-change: transform;
-}
-.grid-bg {
-  position: absolute; width: 5000px; height: 5000px;
-  background-image: radial-gradient(circle, #666 2px, transparent 2px);
-  background-size: 50px 50px; opacity: 0.7; pointer-events: none;
-}
-.edges-svg {
-  position: absolute; top: 0; left: 0; width: 5000px; height: 5000px;
-  pointer-events: none;
-}
-.edges-svg path { pointer-events: stroke; cursor: pointer; }
-
-.graph-node {
-  position: absolute; border-radius: 8px; cursor: pointer; user-select: none;
-  transition: box-shadow 0.15s, border-color 0.15s;
-}
-.graph-node:hover { box-shadow: 0 0 16px rgba(10,132,255,0.4); }
-.graph-node.subject {
-  background: #2d4a7a; border: 2px solid #4a90d9; color: #fff;
-  min-width: 140px; text-align: center; padding: 12px 16px; font-weight: 700;
-  font-size: 15px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-}
-.graph-node.kp {
-  background: #3a5a3a; border: 2px solid #5a9a5a; color: #cfc;
-  min-width: 120px; padding: 8px 12px; font-size: 13px;
-}
-.graph-node.kp.has-wrong { border-color: #e05555; box-shadow: 0 0 8px rgba(224,85,85,0.3); }
-.node-label { pointer-events: none; }
-.node-count {
-  font-size: 11px; opacity: 0.7; margin-top: 4px;
-}
-
-/* ── Chat Panel (z=1, left) ── */
-.chat-panel {
-  position: fixed; left: 16px; top: 16px; bottom: 16px; width: 360px;
-  z-index: 1; background: rgba(30,30,30,0.92); border: 1px solid #444;
-  border-radius: 12px; display: flex; flex-direction: column;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
-}
-.chat-header {
-  padding: 12px 16px; border-bottom: 1px solid #444;
-  font-weight: 600; font-size: 14px; color: #aaa;
-  display: flex; justify-content: space-between; align-items: center;
-}
-.chat-toggle-btn {
-  position: fixed; left: 16px; top: 50%; transform: translateY(-50%);
-  z-index: 2; background: rgba(45,45,45,0.9); border: 1px solid #555;
-  color: #aaa; font-size: 18px; padding: 16px 6px; border-radius: 0 8px 8px 0;
-  cursor: pointer; transition: 0.15s;
-}
-.chat-toggle-btn:hover { background: #0a84ff; color: #fff; }
-.chat-toggle-close {
-  background: none; border: none; color: #888; font-size: 18px;
-  cursor: pointer; padding: 0 4px; line-height: 1;
-}
-.chat-toggle-close:hover { color: #fff; }
-.chat-messages {
-  flex: 1; overflow-y: auto; padding: 12px;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.chat-msg {
-  max-width: 85%; padding: 8px 12px; border-radius: 10px;
-  font-size: 14px; line-height: 1.5; word-break: break-word;
-}
-.chat-msg.user {
-  align-self: flex-end; background: #0a84ff; color: #fff;
-  border-bottom-right-radius: 2px;
-}
-.chat-msg.bot {
-  align-self: flex-start; background: #3a3a3a; color: #ddd;
-  border-bottom-left-radius: 2px;
-}
-.chat-msg.thinking {
-  align-self: flex-start; background: #2a2a2a; color: #999;
-  font-style: italic; border-left: 2px solid #666;
-  font-size: 13px;
-}
-.chat-input-area {
-  padding: 12px; border-top: 1px solid #444; display: flex; gap: 8px;
-}
-.chat-input-area input {
-  flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #555;
-  background: #2a2a2a; color: #eee; font-size: 14px; outline: none;
-}
-.chat-input-area input:focus { border-color: #0a84ff; }
-.chat-input-area button {
-  padding: 8px 16px; border-radius: 8px; border: none;
-  background: #0a84ff; color: #fff; cursor: pointer; font-size: 14px;
-}
-.chat-input-area button:hover { background: #0066cc; }
-.chat-input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
-.thinking-toggle {
-  background: none; border: none; color: #888; cursor: pointer;
-  font-size: 11px; padding: 2px 0;
-}
-.thinking-toggle:hover { color: #aaa; }
-.thinking-block {
-  margin-top: 4px; padding: 8px; background: #222; border-radius: 6px;
-  color: #999; font-style: italic; font-size: 12px; line-height: 1.5;
-  max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
-}
-
-/* ── Quiz Panel Toggle ── */
-.quiz-toggle-btn {
-  position: fixed; right: 16px; top: 50%; transform: translateY(-50%);
-  z-index: 2; background: rgba(45,45,45,0.9); border: 1px solid #555;
-  color: #aaa; font-size: 18px; padding: 16px 6px; border-radius: 8px 0 0 8px;
-  cursor: pointer; transition: 0.15s;
-}
-.quiz-toggle-btn:hover { background: #0a84ff; color: #fff; }
-.quiz-toggle-close {
-  background: none; border: none; color: #888; font-size: 18px;
-  cursor: pointer; padding: 0 4px; line-height: 1;
-}
-.quiz-toggle-close:hover { color: #fff; }
-
-/* ── Quiz Panel (z=1, center-right) ── */
-.quiz-panel {
-  position: fixed; left: 392px; right: 16px; top: 16px; bottom: 16px;
-  z-index: 1; background: rgba(30,30,30,0.92); border: 1px solid #444;
-  border-radius: 12px; display: flex; flex-direction: column;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
-  overflow-y: auto;
-}
-.quiz-header {
-  padding: 12px 16px; border-bottom: 1px solid #444;
-  display: flex; justify-content: space-between; align-items: center;
-}
-.quiz-header h3 { font-size: 15px; }
-.quiz-header button {
-  padding: 6px 14px; border-radius: 6px; border: none;
-  background: #0a84ff; color: #fff; cursor: pointer; font-size: 13px;
-}
-.quiz-header button:hover { background: #0066cc; }
-.quiz-empty {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  color: #666; font-size: 15px; text-align: center; padding: 32px;
-  line-height: 1.6;
-}
-.quiz-list { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
-.question-card {
-  background: #2a2a2a; border: 1px solid #444; border-radius: 10px;
-  padding: 16px; transition: border-color 0.2s;
-}
-.question-card.correct { border-color: #4a9a4a; }
-.question-card.wrong { border-color: #c05555; }
-.q-header {
-  font-weight: 600; font-size: 14px; margin-bottom: 8px;
-  display: flex; justify-content: space-between;
-}
-.q-type {
-  font-size: 11px; color: #888; font-weight: 400;
-}
-.q-options { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.q-option {
-  padding: 6px 14px; border-radius: 6px; border: 1px solid #555;
-  background: #333; color: #ddd; cursor: pointer; font-size: 13px;
-  transition: 0.1s;
-}
-.q-option:hover { border-color: #0a84ff; background: #3a3a3a; }
-.q-option.selected { border-color: #0a84ff; background: #0a5aaa; }
-.q-input-row { display: flex; gap: 8px; }
-.q-input-row input {
-  flex: 1; padding: 6px 12px; border-radius: 6px; border: 1px solid #555;
-  background: #222; color: #eee; font-size: 14px; outline: none;
-}
-.q-input-row input:focus { border-color: #0a84ff; }
-.q-input-row button {
-  padding: 6px 14px; border-radius: 6px; border: none;
-  background: #0a84ff; color: #fff; cursor: pointer; font-size: 13px;
-}
-.q-input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
-.q-result {
-  margin-top: 8px; font-size: 13px; padding: 8px; border-radius: 6px;
-}
-.q-result.correct { background: rgba(74,154,74,0.2); color: #8c8; }
-.q-result.wrong { background: rgba(192,85,85,0.2); color: #c88; }
-
-.quiz-summary {
-  padding: 16px; border-top: 1px solid #444; margin-top: auto;
-}
-.progress-bar {
-  height: 6px; background: #444; border-radius: 3px; margin: 8px 0;
-}
-.progress-fill {
-  height: 100%; border-radius: 3px; background: #0a84ff;
-  transition: width 0.3s;
-}
-
-/* ── Question Bank Panel ── */
-.kb-toggle-btn {
-  position: fixed; right: 16px; bottom: 32px;
-  z-index: 2; background: rgba(45,45,45,0.9); border: 1px solid #555;
-  color: #aaa; font-size: 16px; padding: 8px 14px; border-radius: 8px;
-  cursor: pointer; transition: 0.15s;
-}
-.kb-toggle-btn:hover { background: #0a84ff; color: #fff; }
-.kb-panel {
-  position: fixed; left: 392px; right: 16px; top: 16px; bottom: 16px;
-  z-index: 1; background: rgba(30,30,30,0.92); border: 1px solid #444;
-  border-radius: 12px; display: flex; flex-direction: column;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5); overflow-y: auto;
-}
-.kb-header {
-  padding: 12px 16px; border-bottom: 1px solid #444;
-  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
-}
-.kb-header h3 { font-size: 15px; }
-.kb-header button {
-  padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px;
-}
-.kb-filters { display: flex; gap: 8px; align-items: center; padding: 8px 16px; border-bottom: 1px solid #333; flex-wrap: wrap; }
-.kb-filters select, .kb-filters input {
-  padding: 6px 10px; border-radius: 4px; border: 1px solid #555;
-  background: #2a2a2a; color: #eee; font-size: 12px; outline: none;
-}
-.kb-filters select:focus, .kb-filters input:focus { border-color: #0a84ff; }
-.kb-list { flex: 1; overflow-y: auto; padding: 8px; }
-.kb-item {
-  background: #2a2a2a; border: 1px solid #444; border-radius: 8px;
-  padding: 10px 12px; margin-bottom: 6px; font-size: 13px;
-  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
-}
-.kb-item:hover { border-color: #0a84ff; }
-.kb-item-text { flex: 1; line-height: 1.4; }
-.kb-item-meta { font-size: 11px; color: #888; margin-top: 4px; }
-.kb-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.kb-item-actions button {
-  padding: 3px 10px; border-radius: 4px; border: none; cursor: pointer; font-size: 11px;
-}
-.kb-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #666; font-size: 14px; }
-
-.kb-form {
-  padding: 16px; border-bottom: 1px solid #444; background: #252525;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.kb-form label { font-size: 12px; color: #aaa; display: block; margin-bottom: 2px; }
-.kb-form input, .kb-form select, .kb-form textarea {
-  width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid #555;
-  background: #2a2a2a; color: #eee; font-size: 13px; outline: none;
-}
-.kb-form input:focus, .kb-form select:focus, .kb-form textarea:focus { border-color: #0a84ff; }
-.kb-form textarea { min-height: 60px; resize: vertical; }
-.kb-form-row { display: flex; gap: 10px; }
-.kb-form-row > div { flex: 1; }
-.kb-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.kb-form-actions button {
-  padding: 6px 14px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px;
-}
-.kb-form-actions .btn-cancel { background: #555; color: #ccc; }
-.kb-form-actions .btn-cancel:hover { background: #666; }
-.kb-pagination { display: flex; gap: 8px; justify-content: center; align-items: center; padding: 8px; }
-.kb-pagination button {
-  padding: 4px 10px; border-radius: 4px; border: 1px solid #555;
-  background: #333; color: #ccc; cursor: pointer; font-size: 12px;
-}
-.kb-pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
-.kb-pagination span { font-size: 12px; color: #888; }
-
-/* ── KP Quiz Modal ── */
-.modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
-}
-.modal-box {
-  background: #2a2a2a; border: 1px solid #555; border-radius: 12px;
-  padding: 24px; width: 600px; max-height: 80vh; overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-}
-.modal-box h3 { font-size: 16px; margin-bottom: 12px; }
-.modal-q {
-  background: #333; border: 1px solid #444; border-radius: 8px;
-  padding: 12px; margin-bottom: 8px;
-}
-.modal-q.correct { border-color: #4a9a4a; }
-.modal-q.wrong { border-color: #c05555; }
-.modal-q-text { font-size: 13px; margin-bottom: 8px; }
-.modal-q-options { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.modal-q-option {
-  padding: 4px 12px; border-radius: 4px; border: 1px solid #555;
-  background: #3a3a3a; color: #ddd; cursor: pointer; font-size: 12px;
-}
-.modal-q-option:hover { border-color: #0a84ff; }
-.modal-q-option.selected { background: #0a5aaa; border-color: #0a84ff; }
-.modal-q-input { display: flex; gap: 6px; }
-.modal-q-input input {
-  flex: 1; padding: 6px 10px; border-radius: 4px; border: 1px solid #555;
-  background: #222; color: #eee; font-size: 13px; outline: none;
-}
-.modal-q-input input:focus { border-color: #0a84ff; }
-.modal-q-input button {
-  padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px;
-}
-.modal-q-result { font-size: 12px; margin-top: 6px; padding: 6px; border-radius: 4px; }
-.modal-q-result.correct { background: rgba(74,154,74,0.2); color: #8c8; }
-.modal-q-result.wrong { background: rgba(192,85,85,0.2); color: #c88; }
-.modal-expl {
-  font-size: 12px; margin-top: 4px; padding: 6px; background: #252525;
-  border-radius: 4px; color: #aaa; line-height: 1.5;
-}
-.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
-.modal-actions button {
-  padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px;
-}
-
-/* ── Toolbar (z=2, top center) ── */
-.toolbar {
-  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-  z-index: 2; display: flex; gap: 8px; background: rgba(45,45,45,0.95);
-  padding: 6px 12px; border-radius: 8px; border: 1px solid #444;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-}
-.toolbar button {
-  background: #444; border: none; color: #ccc; padding: 6px 12px;
-  border-radius: 4px; cursor: pointer; font-size: 13px;
-}
-.toolbar button:hover { background: #555; color: #fff; }
-.toolbar .t-hint { color: #777; font-size: 12px; align-self: center; margin-left: 8px; }
-.settings-dropdown {
-  position: absolute; top: 100%; right: 0; margin-top: 8px;
-  background: #2d2d2d; border: 1px solid #555; border-radius: 8px;
-  padding: 16px; min-width: 220px; z-index: 30; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-}
-.settings-section { margin-bottom: 12px; }
-.settings-section label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
-.settings-section input, .settings-section select {
-  width: 100%; padding: 6px 8px; border-radius: 4px; border: 1px solid #555;
-  background: #1e1e1e; color: #eee; font-size: 13px; outline: none;
-}
-.settings-section input:focus, .settings-section select:focus { border-color: #0a84ff; }
-.settings-close {
-  width: 100%; padding: 6px; border-radius: 4px; border: none;
-  background: #444; color: #ccc; cursor: pointer; font-size: 13px;
-}
-.settings-close:hover { background: #555; }
-
-/* Light theme overrides */
-body.light { background: #f0f0f0; color: #222; }
-body.light .canvas-layer { background: #f0f0f0; }
-body.light .grid-bg { background-image: radial-gradient(circle, #999 2px, transparent 2px); opacity: 0.8; }
-body.light .graph-node.subject { background: #d0e0f0; border-color: #4a90d9; color: #222; }
-body.light .graph-node.kp { background: #d0f0d0; border-color: #5a9a5a; color: #222; }
-body.light .chat-panel { background: rgba(255,255,255,0.92); border-color: #ccc; }
-body.light .chat-header { border-color: #ccc; color: #666; }
-body.light .chat-msg.user { background: #0a84ff; color: #fff; }
-body.light .chat-msg.bot { background: #e8e8e8; color: #222; }
-body.light .chat-input-area input { background: #fff; color: #222; border-color: #ccc; }
-body.light .quiz-panel { background: rgba(255,255,255,0.92); border-color: #ccc; }
-body.light .quiz-header { border-color: #ccc; }
-body.light .question-card { background: #fff; border-color: #ddd; }
-body.light .q-input-row input { background: #fff; color: #222; border-color: #ccc; }
-body.light .toolbar { background: rgba(255,255,255,0.95); border-color: #ccc; }
-body.light .toolbar button { background: #e0e0e0; color: #333; }
-body.light .toolbar button:hover { background: #d0d0d0; }
-body.light .settings-dropdown { background: #fff; border-color: #ccc; }
-body.light .settings-section input, body.light .settings-section select { background: #f0f0f0; color: #222; border-color: #ccc; }
-body.light .property-panel { background: #fff; color: #222; }
-body.light .edges-svg text { fill: #666; }
-body.light .katex, body.light .katex .mord, body.light .katex .mbin,
-body.light .katex .mrel, body.light .katex .mopen, body.light .katex .mclose,
-body.light .katex .mpunct, body.light .katex .minner, body.light .katex .mtext { color: #222 !important; }
-
-/* KaTeX dark theme overrides */
-.katex { color: #ddd !important; font-size: 1.05em; }
-.katex-display { margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; }
-.katex .mord, .katex .mbin, .katex .mrel, .katex .mopen, .katex .mclose,
-.katex .mpunct, .katex .minner, .katex .mord.mathnormal, .katex .mtext { color: #ddd !important; }
-</style>
 </head>
 <body>
 
@@ -744,6 +363,9 @@ body.light .katex .mpunct, body.light .katex .minner, body.light .katex .mtext {
   </div>
 </div>
 
+<script src="/js/shared/markdown.js"></script>
+<script src="/js/shared/api.js"></script>
+
 <script>
 const { ref, computed, onMounted, nextTick } = Vue;
 
@@ -930,36 +552,6 @@ Vue.createApp({
           kp.y = base.y + Math.sin(angle) * 200 + 70;
         });
       }
-    }
-
-    // ──────── API helpers ────────
-    async function apiGet(path) {
-      const r = await fetch(path);
-      return r.json();
-    }
-
-    async function apiPost(path, body) {
-      const r = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      return r.json();
-    }
-
-    async function apiPut(path, body) {
-      const r = await fetch(path, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      return r.json();
-    }
-
-    async function apiDelete(path) {
-      const r = await fetch(path, { method: 'DELETE' });
-      if (r.status === 204) return { ok: true };
-      return r.json();
     }
 
     async function fetchGraph() {
@@ -1221,7 +813,6 @@ Vue.createApp({
         });
         if (data.error) {
           addMessage('bot', `Quiz creation failed: ${data.error}`);
-          quizLoading.value = false;
           return;
         }
         quizSessionId.value = data.session_id;
@@ -1238,8 +829,9 @@ Vue.createApp({
           `Quiz created! ${data.questions.length} questions about ${data.subject}. Answer them in the quiz panel.`);
       } catch (e) {
         addMessage('bot', 'Quiz error: ' + e.message);
+      } finally {
+        quizLoading.value = false;
       }
-      quizLoading.value = false;
     }
 
     async function createQuiz() {
@@ -1375,48 +967,6 @@ Vue.createApp({
       } catch (err) {
         alert('Import failed: ' + (err.message || 'Invalid JSON'));
       }
-    }
-
-    function renderContent(text) {
-      if (!text) return '';
-      let html = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      const blocks = [];
-      html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-        blocks.push('<pre><code>' + code.trim() + '</code></pre>');
-        return '%%C' + (blocks.length - 1) + '%%';
-      });
-      html = html.replace(/`([^`]+)`/g, (_, code) => {
-        blocks.push('<code>' + code + '</code>');
-        return '%%C' + (blocks.length - 1) + '%%';
-      });
-      html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) =>
-        '<img src="' + src + '" alt="' + alt + '" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">'
-      );
-      html = html.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => {
-        try { return katex.renderToString(m.trim(), { displayMode: true, throwOnError: false }); } catch { return m; }
-      });
-      html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => {
-        try { return katex.renderToString(m.trim(), { displayMode: true, throwOnError: false }); } catch { return m; }
-      });
-      html = html.replace(/\\\((.+?)\\\)/g, (_, m) => {
-        try { return katex.renderToString(m.trim(), { displayMode: false, throwOnError: false }); } catch { return m; }
-      });
-      html = html.replace(/\$([^\$\n]+?)\$/g, (_, m) => {
-        try { return katex.renderToString(m.trim(), { displayMode: false, throwOnError: false }); } catch { return m; }
-      });
-      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-      html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-      html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-      html = html.replace(/\n\n/g, '<br><br>');
-      html = html.replace(/\n/g, '<br>');
-      html = html.replace(/%%C(\d+)%%/g, (_, i) => blocks[parseInt(i)] || '');
-      return html;
     }
 
     function getKpName(kpId) {

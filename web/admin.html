@@ -552,6 +552,9 @@ knowledge_point：知识点；<br>
 </div></div>
 </div>
 
+<script src="/js/shared/markdown.js"></script>
+<script src="/js/shared/api.js"></script>
+
 <script>
 const {ref,onMounted,computed,reactive}=Vue;
 Vue.createApp({setup(){
@@ -563,7 +566,6 @@ const kps=ref([]),kpSubjectId=ref(''),kpLevelFilter=ref(''),allKps=ref([]),showK
 const kpForm=ref({subject_id:'',title:'',content:'',level_type:'knowledge_point',sort_order:0,alias:'',parent_id:null});
 const showKpImport=ref(false),kpImportSubjectId=ref(''),kpImportJson=ref(''),kpImportResult=ref(null),kpImportFileInput=ref(null),kpImportErrorsDialog=ref(false),kpImportFileLoaded=ref(false);
 const expandedNodes=reactive({});
-function renderContent(text){if(!text)return'';let html=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');html=html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,alt,src)=>{return `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:4px 0">`});html=html.replace(/\\\[([\s\S]+?)\\\]/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\$\$([\s\S]+?)\$\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:true,throwOnError:false})}catch{return m}});html=html.replace(/\\\((.+?)\\\)/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});html=html.replace(/\$([^\$\n]+?)\$/g,(_,m)=>{try{return katex.renderToString(m.trim(),{displayMode:false,throwOnError:false})}catch{return m}});return html}
 function getKpName(id){const k=allKps.value.find(x=>x.id===id);return k?k.title:'KP#'+id}
 function toggleNode(id){expandedNodes[id]=!expandedNodes[id]}
 const treeRows=computed(()=>{const raw=kps.value||[];const map={};for(const k of raw)map[k.id]=k;const kids={};for(const k of raw){const pid=k.parent_id||0;if(!kids[pid])kids[pid]=[];kids[pid].push(k)}for(const key of Object.keys(kids)){kids[key].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)||a.id-b.id)}const lv=kpLevelFilter.value;const rows=[];function walk(pid,depth){const items=kids[pid]||[];for(const k of items){const has=kids[k.id]&&kids[k.id].length>0;rows.push({...k,_depth:depth,_hasChildren:has,_expanded:!!expandedNodes[k.id]});if(has&&expandedNodes[k.id])walk(k.id,depth+1)}}walk(0,0);if(lv)return rows.filter(r=>r.level_type===lv);return rows});
@@ -587,15 +589,6 @@ const uList=ref([]),uTotal=ref(0),uPage=ref(1),uSearch=ref('');
 const showProfileDialog=ref(false),profile=ref(null);
 // Exercise Points
 const epList=ref([]),showEpDialog=ref(false),editingEp=ref(null),epForm=ref({name:''});
-
-async function api(method,path,body){
-const opts={method,headers:{'Content-Type':'application/json'}};
-if(body)opts.body=JSON.stringify(body);
-const r=await fetch(path,opts);
-if(r.status===401){window.location.href='/login.html';return{}}
-return r.json();
-}
-const apiGet=p=>api('GET',p),apiPost=(p,b)=>api('POST',p,b),apiPut=(p,b)=>api('PUT',p,b),apiDelete=p=>api('DELETE',p);
 
 async function checkAuth(){const d=await apiGet('/api/auth/me');if(d.error||d.role!=='admin'){window.location.href='/login.html';return}user.value=d}
 async function logout(){await apiPost('/api/auth/logout',{});window.location.href='/login.html'}
