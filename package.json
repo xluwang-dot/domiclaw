@@ -1,7 +1,7 @@
 {
   "name": "domiclaw",
-  "version": "0.0.1",
-  "description": "Minimal AI agent with TUI and model API support",
+  "version": "1.0.0",
+  "description": "AI 学习助手 — 知识图谱、测验、间隔重复、任务引擎、Agent 驱动",
   "license": "ISC",
   "author": "xluwang",
   "type": "module",
