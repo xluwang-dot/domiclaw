@@ -6,8 +6,8 @@
 
     const canvasRef = ref(null);
     const scale = ref(0.8);
-    const translateX = ref(200);
-    const translateY = ref(-700);
+    const translateX = ref(0);
+    const translateY = ref(-750);
     const nodes = ref([]);
     const edges = ref([]);
     const kpMasteryMap = ref({});

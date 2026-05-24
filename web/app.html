@@ -434,9 +434,25 @@ Vue.createApp({
     function showRootSubjects() {
       canvas.clearFocus();
       canvas.hideKpCard();
-      canvas.scale.value = 0.8;
-      canvas.translateX.value = 200;
-      canvas.translateY.value = -700;
+      const rect = canvas.canvasRef.value?.getBoundingClientRect();
+      if (!rect) {
+        canvas.scale.value = 0.8;
+        canvas.translateX.value = 0;
+        canvas.translateY.value = -750;
+        return;
+      }
+      const cw = rect.width, ch = rect.height;
+      const rootNode = canvas.nodes.value.find(n => n.id === 'root');
+      if (!rootNode) {
+        canvas.scale.value = 0.8;
+        canvas.translateX.value = 0;
+        canvas.translateY.value = -750;
+        return;
+      }
+      const targetScale = Math.min(0.6, cw / 1600);
+      canvas.scale.value = targetScale;
+      canvas.translateX.value = cw * 0.18 - (rootNode.x + 70) * targetScale;
+      canvas.translateY.value = ch * 0.15 - (rootNode.y + 26) * targetScale;
     }
 
     function onSubjectClick(node) {
@@ -835,9 +851,9 @@ Vue.createApp({
     // ──────── Init ────────
     onMounted(async () => {
       await checkAuth();
-      canvas.fetchGraph();
+      await canvas.fetchGraph();
       canvas.fetchMastery();
-      addMessage('bot', '你好！我是豆米虾，你的专属学习伙伴。有什么我可以帮你的吗？');
+      addMessage('bot', '你好！我是豆米虾，你的专属学习伴侣。有什么我可以帮你的吗？');
       showRootSubjects();
     });
 
