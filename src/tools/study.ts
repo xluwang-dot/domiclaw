@@ -1,4 +1,5 @@
 import { registerTool } from "./index.js";
+import { renderProgressBar } from "./utils.js";
 import {
   createStudyPlan,
   getActiveStudyPlan,
@@ -375,13 +376,3 @@ registerTool("submit_self_assessment", {
   },
   metadata: { taskPhase: "during", taskTypes: ["self_eval"] },
 });
-
-/**
- * 渲染进度条
- * @param percent 完成百分比
- * @returns 进度条字符串
- */
-function renderProgressBar(percent: number): string {
-  const filled = Math.round(percent / 10);
-  return "[" + "█".repeat(filled) + "░".repeat(10 - filled) + `] ${percent}%`;
-}

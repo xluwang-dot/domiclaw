@@ -25,6 +25,7 @@ import {
   getAllSubjects,
 } from "./db.js";
 import { getTool, getAllToolDefinitions } from "./tools/index.js";
+import { renderProgressBar } from "./tools/utils.js";
 import { ToolContext } from "./types.js";
 
 export interface QueryResult {
@@ -232,7 +233,7 @@ async function executeOperation(
         if (!plan) return "No active study plan. Ask Domiclaw to create one.";
         const progress = getStudyPlanProgress(plan.id);
         if (!progress) return "Error reading plan.";
-        const bar = renderBar(progress.percent);
+        const bar = renderProgressBar(progress.percent);
         const lines = [`${plan.title}: ${progress.completed}/${progress.total} ${bar}`];
         if (progress.upcoming.length > 0) {
           lines.push("Upcoming:");
@@ -251,10 +252,6 @@ async function executeOperation(
   }
 }
 
-function renderBar(pct: number): string {
-  const filled = Math.round(pct / 10);
-  return "[" + "\u2588".repeat(filled) + "\u2591".repeat(10 - filled) + `] ${pct}%`;
-}
 
 // ── Card Command (画布操作统一指令) ──
 

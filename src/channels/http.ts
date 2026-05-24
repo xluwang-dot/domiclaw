@@ -1091,12 +1091,17 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     });
   });
 
-  // GET /api/plan/progress — mock (T073: 替换为真实数据)
+  /**
+   * @deprecated 自 T073 起前端已改为通过 Agent 获取计划进度，此端点返回假数据
+   */
   app.get("/api/plan/progress", requireAuth, (req: Request, res: Response) => {
     res.json({ has_plan: true, progress: 40, next_chapter: "有理数的运算" });
   });
 
-  // GET /api/user/wrong-questions — mock (T073: 替换为真实数据)
+  /**
+   * @deprecated 自 T073 起，此端点返回硬编码假数据，未从 user_wrongquestions 表查询真实数据。
+   * 前端已通过 Agent 工具调用获取错题数据，此端点保留仅作兼容。
+   */
   app.get("/api/user/wrong-questions", requireAuth, (req: Request, res: Response) => {
     const days = parseInt(req.query.days as string, 10) || 7;
     const minWrong = parseInt(req.query.min_wrong_count as string, 10) || 1;

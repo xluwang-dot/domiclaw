@@ -249,23 +249,8 @@ export function createSchema(database: Database.Database): void {
   }
 }
 
-/*
-module/domain/subject_area → 较大圆角矩形，用于逻辑分组
-chapter/unit → 中等矩形，作为主要导航节点
-section/concept/lesson → 较小节点
-knowledge_point → 最小节点，颜色绑定掌握度，可点击触发测验
-*/
 // Level compatibility: parent → allowed children
 const LEVEL_RULES: Record<string, string[]> = {
-/*
-  "root": ["module", "domain", "unit", "chapter", "section", "knowledge_point"],
-  "module": ["chapter", "unit", "knowledge_point"],
-  "domain": ["chapter", "unit", "knowledge_point"],
-  "unit": ["chapter", "section", "knowledge_point"],
-  "chapter": ["knowledge_point"],
-  "section": ["knowledge_point"],
-  "knowledge_point": ["knowledge_point"], // allows nesting for finer granularity
-  */
   "root": ["module","domain","subject_area","chapter","unit","section","concept","lesson","knowledge_point"],
   "module":["chapter","unit","section","concept","lesson","knowledge_point"],
   "domain":["chapter","unit","section","concept","lesson","knowledge_point"],
@@ -768,8 +753,6 @@ export async function rebuildAllEmbeddings(): Promise<number> {
   }
   return count;
 }
-
-// ============== Exam paper queries ==============
 
 // ============== Question queries ==============
 

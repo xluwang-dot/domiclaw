@@ -1,4 +1,5 @@
 import { registerTool } from "./index.js";
+import { toErrorMessage } from "./utils.js";
 import {
   getQuestionById,
   updateQuizAnswerWeakKps,
@@ -161,8 +162,7 @@ registerTool("analyze_wrong_answer", {
 
       return `Analysis complete${narrowedInfo}: ${parsed.reason}${kpDetail}`;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return `LLM analysis error: ${msg}`;
+      return `LLM analysis error: ${toErrorMessage(err)}`;
     }
   },
   metadata: { taskPhase: "during", taskTypes: ["quiz", "study"] },

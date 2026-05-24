@@ -1,4 +1,5 @@
 import { registerTool } from "./index.js";
+import { checkAnswer, resolveSubjectId } from "./utils.js";
 import {
   getDueReviews,
   getQuestionById,
@@ -143,12 +144,7 @@ registerTool("review_answer", {
     const question = getQuestionById(match ? match.question_id : wqId);
     if (!question) return `Question not found for review ID ${wqId}.`;
 
-    const sa = studentAnswer.trim().toLowerCase();
-    const ca = question.answer.trim().toLowerCase();
-    const correct =
-      question.question_type === "multiple_choice"
-        ? sa.charAt(0) === ca.charAt(0)
-        : sa.includes(ca) || ca.includes(sa);
+    const correct = checkAnswer(studentAnswer, question.answer, question.question_type);
     updateQuestionStats(question.id, correct);
 
     const result = updateReviewResult(wqId, correct);

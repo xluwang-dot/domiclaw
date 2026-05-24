@@ -184,18 +184,3 @@ export async function runAgent(
 
   return { status: "error", result: null, thinking: null, error: "Max tool loop iterations exceeded" };
 }
-
-// 未来防截断预留逻辑：
-// 当 MAX_CONTEXT_MESSAGES 更小或工具循环更深时，启用以下逻辑确保出题消息不被截断
-//
-// function buildContextMessages(allMessages: ChatMessage[], maxCount: number): ChatMessage[] {
-//   const maxWindow = maxCount || 30;
-//   let recent = allMessages.slice(-maxWindow);
-//   const questionMsgIndex = allMessages.findIndex(m =>
-//     m.role === 'assistant' && m.content?.includes('第1题')
-//   );
-//   if (questionMsgIndex >= 0 && !recent.includes(allMessages[questionMsgIndex])) {
-//     recent = [allMessages[questionMsgIndex], ...recent.slice(1)];
-//   }
-//   return recent;
-// }

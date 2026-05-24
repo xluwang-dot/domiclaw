@@ -1,4 +1,5 @@
 import { registerTool } from "./index.js";
+import { checkAnswer, formatOptions } from "./utils.js";
 import { pushSse } from "../sseBus.js";
 import {
   createQuizSession,
@@ -28,21 +29,8 @@ import {
 import { setCurrentQuestion, getCurrentQuestion } from "../agent/questionContext.js";
 import { logger } from "../logger.js";
 
-/**
- * 检查学生答案是否正确
- * @param studentAnswer 学生答案
- * @param correctAnswer 正确答案
- * @param questionType 问题类型
- * @returns 是否正确
- */
-function checkAnswer(studentAnswer: string, correctAnswer: string, questionType: string): boolean {
-  const sa = studentAnswer.trim().toLowerCase();
-  const ca = correctAnswer.trim().toLowerCase();
-  if (questionType === "multiple_choice") return sa.charAt(0) === ca.charAt(0);
-  return sa.includes(ca) || ca.includes(sa);
-}
-
 registerTool("create_quiz", {
+  // TODO: 拆分 - 222 行，混合了 kp_id 路径、subject 路径、难度过滤、test_level 分层、SSE 推送等逻辑
   definition: {
     type: "function",
     function: {
@@ -333,21 +321,7 @@ registerTool("get_quiz_session", {
         const ans = answered.find((a: any) => a.question_id === q.id);
         response += `Q${i + 1}/${allQs.length} (ID: ${q.id}) [${q.type}]: ${q.text}\n`;
         if (q.options) {
-          try {
-            const parsed = JSON.parse(q.options);
-            if (Array.isArray(parsed)) {
-              const letters = "ABCDEFGHIJ";
-              for (let j = 0; j < parsed.length; j++) {
-                response += `  ${letters[j] || j}: ${parsed[j]}\n`;
-              }
-            } else {
-              for (const [k, v] of Object.entries(parsed as Record<string, string>)) {
-                response += `  ${k}: ${v}\n`;
-              }
-            }
-          } catch {
-            response += `  Options: ${q.options}\n`;
-          }
+          response += formatOptions(q.options);
         }
         if (ans) {
           response += `  → Your answer: ${ans.student_answer} (${ans.is_correct ? "Correct" : "Incorrect"})\n`;
@@ -362,21 +336,7 @@ registerTool("get_quiz_session", {
       for (const a of answered) {
         response += `Q (ID: ${a.question_id}) [${a.question_type}]: ${a.question_text?.substring(0, 100)}\n`;
         if (a.options) {
-          try {
-            const parsed = JSON.parse(a.options);
-            if (Array.isArray(parsed)) {
-              const letters = "ABCDEFGHIJ";
-              for (let j = 0; j < parsed.length; j++) {
-                response += `  ${letters[j] || j}: ${parsed[j]}\n`;
-              }
-            } else {
-              for (const [k, v] of Object.entries(parsed as Record<string, string>)) {
-                response += `  ${k}: ${v}\n`;
-              }
-            }
-          } catch {
-            response += `  Options: ${a.options}\n`;
-          }
+          response += formatOptions(a.options);
         }
         response += `  → Your answer: ${a.student_answer} (${a.is_correct ? "Correct" : "Incorrect"})\n\n`;
       }
@@ -535,22 +495,6 @@ function formatQuestion(
   q: { id: number; question_text: string; question_type: string; options: string | null },
 ): string {
   let out = `Q${num}/${total} (ID: ${q.id}) [${q.question_type}]: ${q.question_text}\n`;
-  if (q.options) {
-    try {
-      const parsed = JSON.parse(q.options);
-      if (Array.isArray(parsed)) {
-        const letters = "ABCDEFGHIJ";
-        for (let i = 0; i < parsed.length; i++) {
-          out += `  ${letters[i] || i}: ${parsed[i]}\n`;
-        }
-      } else {
-        for (const [k, v] of Object.entries(parsed as Record<string, string>)) {
-          out += `  ${k}: ${v}\n`;
-        }
-      }
-    } catch {
-      out += `  Options: ${q.options}\n`;
-    }
-  }
+  if (q.options) out += formatOptions(q.options);
   return out;
 }
