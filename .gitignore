@@ -35,3 +35,6 @@ graphify-out/*
 *.TXT
 *.txt
 AGENTS.md
+data/domiclaw.db
+data/messages.db
+*.png

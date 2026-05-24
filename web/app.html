@@ -13,475 +13,464 @@
 <body>
 
 <div id="app">
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <button @click="autoLayout('grid')">Grid</button>
-    <button @click="autoLayout('tree')">Tree</button>
-    <button @click="fetchGraph">Refresh</button>
-    <span class="t-hint">Scroll=Zoom | Drag=Pan | Click Node=View</span>
-    <span style="color:#888;font-size:12px" v-if="currentUser">{{ currentUser.username }}</span>
-    <button @click="logout" style="background:#a33;color:#fff;margin-left:4px" title="Logout">Logout</button>
-    <div style="position:relative;margin-left:auto">
-      <button @click="showSettings = !showSettings" title="Settings">⚙</button>
-      <div v-if="showSettings" class="settings-dropdown">
-        <div class="settings-section">
-          <label>Model</label>
-          <input v-model="modelName" placeholder="deepseek-v4-flash" />
-        </div>
-        <div class="settings-section">
-          <label>Theme</label>
-          <select v-model="theme" @change="applyTheme">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </div>
-        <button class="settings-close" @click="showSettings = false">Close</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Canvas -->
-  <div class="canvas-layer"
-    @wheel.prevent="handleWheel"
-    @mousedown="handleCanvasMouseDown"
-    ref="canvasRef">
-    <div class="canvas-transform" :style="canvasTransformStyle">
-      <div class="grid-bg"></div>
-      <svg class="edges-svg">
-        <defs>
-          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
-          </marker>
-        </defs>
-        <g>
-          <path v-for="edge in visibleEdges" :key="edge.id"
-            :d="getEdgePath(edge)"
-            stroke="#666" stroke-width="2" fill="none"
-            marker-end="url(#arrowhead)"
-          />
-          <text v-for="edge in edgesWithLabels" :key="'t'+edge.id"
-            :x="getEdgeLabelPos(edge).x" :y="getEdgeLabelPos(edge).y"
-            fill="#888" font-size="11" text-anchor="middle"
-            style="pointer-events:none;user-select:none">
-            {{ edge.label }}
-          </text>
-        </g>
-      </svg>
-      <div v-for="node in visibleNodes" :key="node.id"
-        class="graph-node"
-        :class="[node.type, { 'has-wrong': node.meta?.hasWrong }]"
-        :style="nodeStyle(node)"
-        @click.stop="onNodeClick(node)">
-        <div class="node-label">{{ node.label }}</div>
-        <div v-if="node.meta?.questionCount" class="node-count">
-          {{ node.meta.questionCount }} questions
-        </div>
-      </div>
+  <!-- ═══════════ Agent Panel (left sidebar) ═══════════ -->
+  <aside class="agent-panel" :class="{ collapsed: !agentOpen }">
+    <div class="agent-header">
+      <span class="agent-user">学习助手</span>
+      <button class="agent-toggle" @click="agentOpen = !agentOpen">◀</button>
     </div>
-  </div>
 
-  <!-- Chat Panel Toggle (visible when hidden) -->
-  <button v-if="!chatVisible" class="chat-toggle-btn" @click="chatVisible = true" title="Show chat panel">
-    &#187;
-  </button>
-
-  <!-- Chat Panel -->
-  <div class="chat-panel" v-if="chatVisible">
-    <div class="chat-header">
-      <div style="display:flex;align-items:center;gap:8px;flex:1">
-        Chat with Domiclaw
-        <span v-if="taskMode === 'task' && currentTask"
-          style="display:inline-flex;align-items:center;gap:6px;font-size:12px;
-                 background:#e0f2fe;color:#0369a1;padding:2px 10px;border-radius:12px;font-weight:600">
-          &#9889; {{ currentTask.title }}
-        </span>
-      </div>
-      <div style="display:flex;align-items:center;gap:4px">
-        <button v-if="taskMode === 'task'"
-          @click="endTask"
-          style="padding:3px 10px;font-size:12px;background:#dc2626;color:white;border:none;border-radius:4px;cursor:pointer"
-          title="结束当前任务">结束</button>
-        <button class="chat-toggle-close" @click="chatVisible = false" title="Hide chat panel">&#171;</button>
-      </div>
-    </div>
-    <div class="chat-messages" ref="chatMsgs">
-      <div v-for="(m, i) in messages" :key="i"
-        class="chat-msg" :class="m.role">
+    <div class="agent-messages" ref="chatMsgs">
+      <div v-for="(m, i) in messages" :key="i" class="agent-msg" :class="m.role">
         <template v-if="m.role==='thinking'">
-          <div style="font-size:12px;color:#888;margin-bottom:4px">Thinking...</div>
+          <div class="tooltip-text">Thinking...</div>
           <span v-html="renderContent(m.text)"></span>
         </template>
         <template v-else>
           <span v-html="renderContent(m.text)"></span>
           <div v-if="m.thinking" style="margin-top:8px">
             <button class="thinking-toggle" @click="m.thinkingShow = !m.thinkingShow">
-              {{ m.thinkingShow ? 'Hide thinking' : 'Show thinking' }}
+              {{ m.thinkingShow ? '收起思考' : '显示思考过程' }}
             </button>
             <div v-if="m.thinkingShow" class="thinking-block" v-html="renderContent(m.thinking)"></div>
           </div>
         </template>
       </div>
-      <div v-if="streaming" class="chat-msg bot" style="opacity:0.7">
-        <div v-if="toolCallText" style="font-size:12px;color:#888;margin-bottom:4px">{{ toolCallText }}</div>
+      <div v-if="streaming" class="agent-msg bot" style="opacity:0.7">
+        <div v-if="toolCallText" class="tooltip-text">{{ toolCallText }}</div>
         <span v-if="streamingText">{{ streamingText }}<span class="cursor-blink">|</span></span>
-        <span v-else style="color:#888">thinking...</span>
+        <span v-else style="color:#888">思考中...</span>
       </div>
     </div>
-    <div class="chat-input-area">
-      <input v-model="chatInput" @keyup.enter="sendMessage"
-        placeholder="Ask Domiclaw..." :disabled="streaming" />
-      <button @click="sendMessage" :disabled="!chatInput.trim() || streaming">Send</button>
-    </div>
-  </div>
 
-  <!-- Quiz Popup (Agent-driven) -->
-  <div v-if="quizPopup.show" class="modal-overlay">
-    <div class="modal-box" style="max-width:700px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h3 style="margin:0">{{ quizPopup.subject }} — 测验</h3>
-        <div style="display:flex;gap:8px;align-items:center">
-          <label style="font-size:12px;color:#888">
-            <input type="checkbox" v-model="quizPopup.oneByOne" /> 逐题模式
+    <div class="agent-input">
+      <input v-model="chatInput" @keyup.enter="sendMessage"
+        placeholder="问豆米虾..." :disabled="streaming" />
+      <button @click="sendMessage" :disabled="!chatInput.trim() || streaming">发送</button>
+    </div>
+
+    <div v-if="taskMode === 'task' && currentTask" class="agent-task-bar">
+      ⚡ {{ currentTask.title }}
+      <button @click="endTask">结束</button>
+    </div>
+  </aside>
+
+  <!-- Show button when collapsed -->
+  <button v-if="!agentOpen" class="agent-show-btn" @click="agentOpen = true">▶</button>
+
+  <!-- ═══════════ Main Content ═══════════ -->
+  <main class="main-content">
+
+    <!-- Breadcrumb (always visible) -->
+    <div class="breadcrumb">
+      <span class="breadcrumb-item root" @click="exitQuizOrRoot">知识库</span>
+      <span v-if="focusPath.length" class="breadcrumb-sep">›</span>
+      <span v-for="(f, i) in focusPath" :key="i" class="breadcrumb-item"
+        :class="{ root: i === focusPath.length - 1 && !quizMode.active }"
+        @click="popToFocus(i)">
+        {{ f.label }}
+        <span v-if="i < focusPath.length - 1 || quizMode.active" class="breadcrumb-sep">›</span>
+      </span>
+      <template v-if="quizMode.active && quizMode.kpName">
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-item root">点亮知识点</span>
+        <span v-if="hoveredKpName" class="breadcrumb-qkp">: {{ hoveredKpName }}</span>
+      </template>
+    </div>
+
+    <!-- Canvas Layer -->
+    <div class="canvas-layer" v-show="!quizMode.active"
+      @wheel.prevent="handleWheel"
+      @mousedown="handleCanvasMouseDown"
+      ref="canvasRef">
+
+      <div class="canvas-transform" :style="canvasTransformStyle">
+        <div class="grid-bg"></div>
+        <svg class="edges-svg">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+            </marker>
+          </defs>
+          <g>
+            <path v-for="edge in visibleEdges" :key="edge.id || edge.fromId + '-' + edge.toId"
+              :d="getEdgePath(edge)"
+              stroke="#666" stroke-width="2" fill="none"
+              marker-end="url(#arrowhead)"
+            />
+            <text v-for="edge in edgesWithLabels" :key="'t' + (edge.id || edge.fromId + '-' + edge.toId)"
+              :x="getEdgeLabelPos(edge).x" :y="getEdgeLabelPos(edge).y"
+              fill="#888" font-size="11" text-anchor="middle"
+              style="pointer-events:none;user-select:none">
+              {{ edge.label }}
+            </text>
+          </g>
+        </svg>
+
+        <!-- Root node -->
+        <div v-for="node in rootNodes" :key="node.id"
+          class="graph-node root-node"
+          :style="rootNodeStyle(node)"
+          @click.stop="onRootClick">
+          <div class="node-label">知识库</div>
+        </div>
+
+        <!-- Subject nodes -->
+        <div v-for="node in subjectNodes" :key="node.id"
+          class="graph-node subject"
+          :style="subjectNodeStyle(node)"
+          @click.stop="onSubjectClick(node)">
+          <div class="node-label">{{ node.label }}</div>
+        </div>
+
+        <!-- KP nodes -->
+        <div v-for="node in kpNodes" :key="node.id"
+          class="graph-node kp"
+          :class="{ lit: kpMasteryMap[node.kpId]?.mastery > 0, 'has-wrong': node.meta?.hasWrong }"
+          :style="kpNodeStyle(node)"
+          @click.stop="onKpClick(node)">
+          <div class="node-label">{{ node.label }}</div>
+          <div v-if="node.meta?.questionCount" class="node-count">
+            {{ node.meta.questionCount }} 题
+          </div>
+        </div>
+
+        <!-- Knowledge Card (canvas node) -->
+        <div v-for="node in cardNodes" :key="node.id"
+          class="graph-node card-node"
+          :class="{ lit: node.mastery > 0 }"
+          :style="cardNodeStyle(node)">
+          <div class="card-title">{{ node.label }}</div>
+          <template v-if="node.mastery > 0">
+            <div class="card-bar-wrap">
+              <div class="card-bar"><div class="card-fill" :style="{ width: Math.round(node.mastery * 100) + '%', background: masteryColor(node.mastery) }"></div></div>
+              <div class="card-pct">{{ Math.round(node.mastery * 100) }}% 掌握</div>
+            </div>
+            <div class="card-actions">
+              <button class="card-btn primary" @click="startKpQuiz(node.kpId)">继续练习</button>
+              <button class="card-btn secondary" @click="startKpWrongQuiz(node.kpId)">错误巩固</button>
+            </div>
+          </template>
+          <template v-else>
+            <div class="card-bar-wrap">
+              <div class="card-bar"><div class="card-fill" style="width:0%"></div></div>
+              <div class="card-pct">尚未学习</div>
+            </div>
+            <div class="card-actions center">
+              <button class="card-btn primary" @click="startKpQuiz(node.kpId)">点亮知识点</button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quiz Mode (all questions at once) -->
+    <div v-if="quizMode.active" class="quiz-panel">
+      <div class="quiz-title">{{ quizMode.kpName || quizMode.source || '' }} 测试</div>
+
+      <div v-for="(q, qi) in quizMode.questions" :key="q.id"
+        class="quiz-item"
+        :class="{ answered: q.answered, correct: q.result === 'correct', wrong: q.result === 'wrong' }"
+        @mouseenter="hoveredKpName = q.kp_name || ''"
+        @mouseleave="hoveredKpName = ''">
+        <div class="qi-header">
+          <span class="qi-num">{{ qi + 1 }}. [{{ typeLabel(q.type) }}]</span>
+        </div>
+
+        <template v-if="q.type === 'fill' && q.fillParts">
+          <div class="qi-text">
+            <template v-for="(p, pi) in q.fillParts" :key="pi">
+              <span v-if="p.type === 'text'" v-html="renderContent(p.content)"></span>
+              <input v-else class="qi-blank-input"
+                :value="q.answerArr[p.idx] || ''"
+                @input="e => q.answerArr[p.idx] = e.target.value"
+                :disabled="q.answered" />
+            </template>
+          </div>
+        </template>
+        <div v-else class="qi-text" v-html="renderContent(q.text)"></div>
+
+        <!-- Choice options -->
+        <div v-if="q.type === 'choice' && !q.answered" class="qi-options">
+          <label v-for="opt in q.optionsList" :key="opt.key" class="qi-opt"
+            :class="{ selected: q.selected === opt.key }">
+            <input type="radio" :value="opt.key" v-model="q.selected" style="display:none" />
+            <span class="qi-opt-text" v-html="renderContent(opt.text)"></span>
           </label>
         </div>
-      </div>
-      <!-- All questions mode -->
-      <div v-if="!quizPopup.oneByOne">
-        <div v-for="(q, qi) in quizPopup.questions" :key="q.id" class="modal-q"
-          :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
-          <div class="modal-q-text">
-            Q{{ qi+1 }}. [{{ q.type }}] <span v-html="renderContent(q.text)"></span>
-          </div>
-          <div v-if="q.type === 'choice' && !q.answered" class="modal-q-options">
-            <button v-for="(label, k) in q.options" :key="k" class="modal-q-option"
-              :class="{ selected: q.selected === k }" @click="q.selected = k">{{ k }}: {{ label }}</button>
-          </div>
-          <div v-if="q.type === 'fill' && !q.answered" class="modal-q-input">
-            <input v-model="q.answer" placeholder="请输入答案" @keyup.enter="submitQuizAnswer(q)" />
-          </div>
-          <div v-if="(q.type === 'calculate' || q.type === 'proof') && !q.answered" class="modal-q-calc">
-            <textarea v-model="q.answer" placeholder="请输入解题过程（可选）" rows="2"></textarea>
-            <div style="margin-top:6px">
-              <label style="font-size:12px;color:#888;cursor:pointer">
-                📷 上传手写图片
-                <input type="file" accept="image/*" style="display:none" @change="e => handleQuizImage(q, e)" />
-              </label>
-              <img v-if="q.imageUrl" :src="q.imageUrl" style="max-width:200px;max-height:150px;margin-top:4px;border-radius:4px;border:1px solid #444" />
-            </div>
-          </div>
-          <div v-if="q.answered" class="modal-q-result" :class="q.result">
-            {{ q.result === 'correct' ? '✅ 正确' : '❌ 错误' }}
-            <template v-if="q.explanation"><br><small v-html="renderContent(q.explanation)"></small></template>
-          </div>
+
+        <!-- Non-choice, non-fill: textarea -->
+        <div v-if="q.type !== 'choice' && q.type !== 'fill' && !q.answered" class="qi-textarea-wrap">
+          <textarea v-model="q.answer" placeholder="输入解题过程" rows="3" class="qi-textarea"></textarea>
+        </div>
+        <!-- Fill without blanks: single input -->
+        <div v-if="q.type === 'fill' && !q.fillParts && !q.answered" class="qi-textarea-wrap">
+          <input v-model="q.answer" placeholder="输入答案" class="qi-textarea" />
+        </div>
+
+        <!-- Result -->
+        <div v-if="q.answered" class="qi-result" :class="q.result">
+          {{ q.result === 'correct' ? '✓ 正确' : '✗ 错误' }}
+          <span v-if="q.explanation" v-html="'：' + renderContent(q.explanation)"></span>
         </div>
       </div>
-      <!-- One-by-one mode -->
-      <div v-if="quizPopup.oneByOne && quizPopup.questions.length">
-        <div class="modal-q"
-          :class="{ correct: currentQuizQ.result==='correct', wrong: currentQuizQ.result==='wrong' }">
-          <div class="modal-q-text">
-            Q{{ quizPopup.currentIndex+1 }}/{{ quizPopup.questions.length }}. [{{ currentQuizQ.type }}]
-            <span v-html="renderContent(currentQuizQ.text)"></span>
-          </div>
-          <div v-if="currentQuizQ.type === 'choice' && !currentQuizQ.answered" class="modal-q-options">
-            <button v-for="(label, k) in currentQuizQ.options" :key="k" class="modal-q-option"
-              :class="{ selected: currentQuizQ.selected === k }" @click="currentQuizQ.selected = k">{{ k }}: {{ label }}</button>
-          </div>
-          <div v-if="currentQuizQ.type === 'fill' && !currentQuizQ.answered" class="modal-q-input">
-            <input v-model="currentQuizQ.answer" placeholder="请输入答案" @keyup.enter="submitQuizAnswer(currentQuizQ)" />
-          </div>
-          <div v-if="(currentQuizQ.type === 'calculate' || currentQuizQ.type === 'proof') && !currentQuizQ.answered" class="modal-q-calc">
-            <textarea v-model="currentQuizQ.answer" placeholder="请输入解题过程（可选）" rows="2"></textarea>
-            <div style="margin-top:6px">
-              <label style="font-size:12px;color:#888;cursor:pointer">
-                📷 上传手写图片
-                <input type="file" accept="image/*" style="display:none" @change="e => handleQuizImage(currentQuizQ, e)" />
-              </label>
-              <img v-if="currentQuizQ.imageUrl" :src="currentQuizQ.imageUrl" style="max-width:200px;max-height:150px;margin-top:4px;border-radius:4px;border:1px solid #444" />
-            </div>
-          </div>
-          <div v-if="currentQuizQ.answered" class="modal-q-result" :class="currentQuizQ.result">
-            {{ currentQuizQ.result === 'correct' ? '✅ 正确' : '❌ 错误' }}
-            <template v-if="currentQuizQ.explanation"><br><small v-html="renderContent(currentQuizQ.explanation)"></small></template>
-          </div>
+
+      <div v-if="!allAnswered" class="qi-submit-all">
+        <button class="qi-submit-btn" @click="submitAllQuiz">提交</button>
+      </div>
+
+      <div v-if="allAnswered" class="qi-summary">
+        <span class="qi-summary-score">{{ correctCount }}/{{ quizMode.questions.length }}</span>
+        <span class="qi-summary-pct">{{ Math.round(correctCount / quizMode.questions.length * 100) }}%</span>
+        <button class="qi-finish" @click="exitQuizMode">完成</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ═══════════ Bottom Toolbar ═══════════ -->
+  <footer class="bottom-toolbar" :class="{ mini: quizMode.active }" :style="toolbarStyle">
+    <template v-if="!quizMode.active">
+      <button class="toolbar-btn" @click="openPlanDialog">1号计划</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" @click="openWeaknessDialog">知识强化</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" @click="openWrongQuizDialog">错题测试</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" @click="resetLayout">默认布局</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn icon-btn" @click="openSettings">⚙</button>
+    </template>
+    <template v-else>
+      <button class="toolbar-btn exit-mode" @click="exitQuizMode">← 退出专注模式</button>
+    </template>
+  </footer>
+
+  <!-- ═══════════ Modal Dialogs ═══════════ -->
+
+  <!-- 1号计划 Dialog -->
+  <div v-if="planDialog.show" class="modal-overlay">
+    <div class="modal-box">
+      <h3>📋 1号计划</h3>
+      <div class="modal-body">
+        <div class="plan-progress-bar">
+          <div class="plan-progress-fill" :style="{ width: planDialog.progress + '%' }"></div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button v-if="!currentQuizQ.answered" @click="skipQuizQuestion" style="background:#555;color:#ccc">跳过</button>
-          <button v-if="!currentQuizQ.answered" @click="submitQuizAnswer(currentQuizQ)" :disabled="!currentQuizQ.answer && !currentQuizQ.selected && !currentQuizQ.imageUrl"
-            style="background:#0a84ff;color:#fff">提交</button>
-          <button v-if="currentQuizQ.answered && quizPopup.currentIndex < quizPopup.questions.length - 1"
-            @click="quizPopup.currentIndex++" style="background:#0a84ff;color:#fff">下一题</button>
+        <div class="plan-encourage">
+          {{ planEncourageText }}
+        </div>
+        <div class="plan-next">
+          下一步：{{ planDialog.nextChapter }}
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-        <button @click="submitAllQuiz" style="background:#0a84ff;color:#fff"
-          :disabled="!quizPopup.questions.some(q => q.answered)">交卷</button>
+      <div class="modal-footer">
+        <button class="modal-btn-warm" @click="continuePlan">继续摸底</button>
+        <button class="modal-btn-secondary" @click="planDialog.show = false">关闭</button>
       </div>
     </div>
   </div>
 
-  <!-- KP Quiz Modal -->
-  <div v-if="kpModal.show" class="modal-overlay">
+  <!-- 知识强化 Dialog -->
+  <div v-if="weaknessDialog.show" class="modal-overlay">
     <div class="modal-box">
-      <h3>Quiz: {{ kpModal.kpName }}</h3>
-      <div v-if="kpModal.loading" style="color:#888;text-align:center;padding:32px">Loading...</div>
-      <div v-else>
-        <div v-for="(q, qi) in kpModal.questions" :key="q.id" class="modal-q"
-          :class="{ correct: q.result==='correct', wrong: q.result==='wrong' }">
-          <div class="modal-q-text">
-            Q{{ qi+1 }}. [{{ q.type }}] <span v-html="renderContent(q.text)"></span>
+      <h3>📖 知识强化</h3>
+      <div class="modal-body">
+        <p class="tooltip-text" style="margin-bottom:12px">薄弱知识点 Top 5</p>
+        <div v-for="w in weaknessDialog.items" :key="w.kp_id" class="weakness-item">
+          <span class="weakness-name">{{ w.kp_name }}</span>
+          <div class="weakness-bar">
+            <div class="weakness-fill" :style="{ width: (w.mastery * 100) + '%', background: masteryColor(w.mastery) }"></div>
           </div>
-          <div v-if="q.options && !q.answered" class="modal-q-options">
-            <button v-for="(label, k) in q.options" :key="k" class="modal-q-option"
-              :class="{ selected: q.selected === k }" @click="q.selected = k">{{ k }}: {{ label }}</button>
-          </div>
-          <div v-if="!q.answered" class="modal-q-input">
-            <input v-model="q.studentAnswer" :placeholder="q.type==='choice'?'Type letter A/B/C/D':'Your answer'"
-              @keyup.enter="submitKpAnswer(q, qi)" />
-            <button @click="submitKpAnswer(q, qi)" style="background:#0a84ff;color:#fff">Submit</button>
-          </div>
-          <div v-if="q.answered" class="modal-q-result" :class="q.result">
-            {{ q.result === 'correct' ? 'Correct!' : 'Incorrect' }}
-            <button @click="toggleExplanation(q)" style="margin-left:8px;background:none;border:none;color:#888;cursor:pointer;font-size:11px;text-decoration:underline">
-              {{ q.showExp ? 'Hide explanation' : 'Explain' }}
-            </button>
-            <div v-if="q.showExp" class="modal-expl">
-              <template v-if="q.explanation"><span v-html="renderContent(q.explanation)"></span></template>
-              <template v-else>Generating explanation...</template>
-            </div>
-          </div>
+          <span class="weakness-pct">{{ Math.round(w.mastery * 100) }}%</span>
+          <button class="weakness-btn" @click="startWeaknessQuiz(w.kp_id)">练习</button>
+        </div>
+        <div v-if="!weaknessDialog.items.length" style="text-align:center;padding:24px;color:#888">
+          暂无薄弱知识点
         </div>
       </div>
-      <div class="modal-actions">
-        <button @click="refreshKpQuiz" :disabled="kpModal.totalExhausted" v-if="kpModal.questions.length"
-          :style="{ background: kpModal.totalExhausted ? '#444' : '#555', color: '#ccc' }">
-          {{ kpModal.totalExhausted ? 'No more questions' : 'Refresh (new set)' }}
-        </button>
-        <button @click="finishKpQuiz" style="background:#a33;color:#fff" v-if="kpModal.questions.length">Finish</button>
-        <button @click="closeKpModal" style="background:#555;color:#ccc">Close</button>
+      <div class="modal-footer">
+        <button v-if="weaknessDialog.items.length" class="modal-btn-primary" @click="startAllWeaknessQuiz">全部练习</button>
+        <button class="modal-btn-secondary" @click="weaknessDialog.show = false">关闭</button>
       </div>
     </div>
   </div>
+
+  <!-- 错题测试 Dialog -->
+  <div v-if="wrongQuizDialog.show" class="modal-overlay">
+    <div class="modal-box">
+      <h3>❌ 错题测试</h3>
+      <div class="modal-body">
+        <div class="filter-row">
+          <label>时间范围：</label>
+          <select v-model="wrongQuizDialog.days">
+            <option value="0">全部</option>
+            <option value="7">最近 7 天</option>
+            <option value="30">最近 30 天</option>
+          </select>
+        </div>
+        <div class="filter-row">
+          <label>错误次数 ≥</label>
+          <input type="number" v-model.number="wrongQuizDialog.minWrong" min="1" />
+        </div>
+        <div class="tooltip-text" style="margin-top:8px">
+          共 {{ wrongQuizDialog.total }} 题待复习
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn-primary" :disabled="!wrongQuizDialog.total" @click="startWrongQuiz">开始练习</button>
+        <button class="modal-btn-secondary" @click="wrongQuizDialog.show = false">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div v-if="settingsModal" class="modal-overlay">
+    <div class="modal-box">
+      <h3>⚙ 设置</h3>
+      <div class="modal-body">
+        <div class="settings-item">
+          <label>主题</label>
+          <select v-model="theme" @change="applyTheme">
+            <option value="dark">暗色</option>
+            <option value="light">暖白</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn-danger" @click="logout">退出系统</button>
+        <button class="modal-btn-secondary" @click="settingsModal = false">关闭</button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script src="/js/shared/markdown.js"></script>
 <script src="/js/shared/api.js"></script>
+<script src="/js/shared/canvas.js"></script>
 
 <script>
 const { ref, computed, onMounted, nextTick } = Vue;
 
 Vue.createApp({
   setup() {
-    // ──────── Canvas State ────────
-    const canvasRef = ref(null);
-    const scale = ref(0.8);
-    const translateX = ref(200);
-    const translateY = ref(100);
-    const nodes = ref([]);
-    const edges = ref([]);
+    // ──────── Canvas (from canvas.js) ────────
+    const canvas = useCanvas(apiGet);
 
-    const canvasTransformStyle = computed(() => ({
-      transform: `translate(${translateX.value}px, ${translateY.value}px) scale(${scale.value})`,
-      transformOrigin: '0 0',
-    }));
-
-    const visibleNodes = computed(() => {
-      const expanded = expandedSubjects.value;
-      return nodes.value.filter(n => {
-        if (n.type === 'subject') return true;
-        // KP node: show if parent subject is expanded
-        const parentEdge = edges.value.find(e => e.toId === n.id && e.fromId.startsWith('subj-'));
-        if (!parentEdge) return true; // orphan, show it
-        return expanded.has(parentEdge.fromId);
-      });
-    });
-
-    const visibleEdges = computed(() => {
-      const vIds = new Set(visibleNodes.value.map(n => n.id));
-      return edges.value.filter(e => vIds.has(e.fromId) && vIds.has(e.toId));
-    });
-
-    const edgesWithLabels = computed(() => visibleEdges.value.filter(e => e.label));
-
-    // Node positioning: offset to center of node for edges
-    function getNodeCenter(node) {
-      const w = node.type === 'subject' ? 140 : 120;
-      const h = node.type === 'subject' ? 52 : 38;
-      return { x: node.x + w/2, y: node.y + h/2 };
-    }
-
-    function getEdgePath(edge) {
-      const from = nodes.value.find(n => n.id === edge.fromId);
-      const to = nodes.value.find(n => n.id === edge.toId);
-      if (!from || !to) return '';
-      const fromC = getNodeCenter(from);
-      const toC = getNodeCenter(to);
-      const dx = Math.abs(fromC.x - toC.x) * 0.5;
-      return `M ${fromC.x} ${fromC.y} C ${fromC.x+dx} ${fromC.y}, ${toC.x-dx} ${toC.y}, ${toC.x} ${toC.y}`;
-    }
-
-    function getEdgeLabelPos(edge) {
-      const from = nodes.value.find(n => n.id === edge.fromId);
-      const to = nodes.value.find(n => n.id === edge.toId);
-      if (!from || !to) return { x: 0, y: 0 };
-      const fromC = getNodeCenter(from);
-      const toC = getNodeCenter(to);
-      return { x: (fromC.x + toC.x) / 2, y: (fromC.y + toC.y) / 2 - 8 };
-    }
-
-    function nodeStyle(node) {
-      const w = node.type === 'subject' ? 140 : 120;
-      let borderColor = '';
-      if (node.type === 'knowledge_point') {
-        const kpId = node.id.startsWith('kp-') ? parseInt(node.id.slice(3)) : null;
-        const m = kpId ? kpMasteryMap.value[kpId] : null;
-        if (m) {
-          if (m.mastery < 0.5) borderColor = '#e05555';
-          else if (m.mastery <= 0.8) borderColor = '#e0c055';
-          else borderColor = '#5a9a5a';
-        }
-      }
-      const style = { left: node.x + 'px', top: node.y + 'px', width: w + 'px' };
-      if (borderColor) style.borderColor = borderColor;
-      return style;
-    }
-
-    // Canvas interaction
-    let isPanning = false, panStart = { x: 0, y: 0 }, tsStart = { x: 0, y: 0 };
-
-    function handleCanvasMouseDown(e) {
-      if (e.target.closest('.graph-node')) return;
-      isPanning = true;
-      panStart = { x: e.clientX, y: e.clientY };
-      tsStart = { x: translateX.value, y: translateY.value };
-      window.addEventListener('mousemove', onPanMove);
-      window.addEventListener('mouseup', onPanUp);
-    }
-
-    function onPanMove(e) {
-      if (!isPanning) return;
-      translateX.value = tsStart.x + e.clientX - panStart.x;
-      translateY.value = tsStart.y + e.clientY - panStart.y;
-    }
-
-    function onPanUp() {
-      isPanning = false;
-      window.removeEventListener('mousemove', onPanMove);
-      window.removeEventListener('mouseup', onPanUp);
-    }
-
-    function handleWheel(e) {
-      const delta = -e.deltaY * 0.001;
-      const newScale = Math.min(3, Math.max(0.2, scale.value * (1 + delta)));
-      const rect = canvasRef.value.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const cx = (mx - translateX.value) / scale.value;
-      const cy = (my - translateY.value) / scale.value;
-      scale.value = newScale;
-      translateX.value = mx - cx * scale.value;
-      translateY.value = my - cy * scale.value;
-    }
-
-    function onNodeClick(node) {
-      if (node.type === 'subject') {
-        const set = expandedSubjects.value;
-        if (set.has(node.id)) set.delete(node.id); else set.add(node.id);
-        expandedSubjects.value = new Set(set); // trigger reactivity
-      } else if (node.type === 'knowledge_point') {
-        const kpId = node.id.startsWith('kp-') ? parseInt(node.id.slice(3)) : null;
-        if (kpId) openKpQuizModal(kpId, node.label);
-      }
-    }
-
-    function autoLayout(type) {
-      const subs = nodes.value.filter(n => n.type === 'subject');
-      const kps = nodes.value.filter(n => n.type === 'knowledge_point');
-      const subjW = 140, subjH = 52, kpW = 120, kpH = 38;
-      const spacingX = 60, spacingY = 70;
-
-      if (type === 'tree') {
-        // Tree layout: subjects in a row at top, KPs clustered below each subject
-        const totalWidth = subs.length * (subjW + spacingX) + spacingX;
-        const startX = 200;
-        subs.forEach((s, i) => {
-          s.x = startX + i * (subjW + spacingX);
-          s.y = 120;
-        });
-        // Arrange KPs under their parent subjects
-        const byParent = new Map();
-        for (const kp of kps) {
-          const parentEdge = edges.value.find(
-            e => e.toId === kp.id && e.fromId.startsWith('subj-'));
-          const pid = parentEdge?.fromId || '';
-          if (!byParent.has(pid)) byParent.set(pid, []);
-          byParent.get(pid).push(kp);
-        }
-        for (const [pid, children] of byParent) {
-          const parent = subs.find(s => s.id === pid);
-          const cx = parent ? parent.x + subjW / 2 : 400;
-          const cy = parent ? parent.y + subjH + 60 : 250;
-          const n = children.length;
-          if (n === 1) {
-            children[0].x = cx - kpW / 2;
-            children[0].y = cy;
-          } else {
-            const totalW = n * kpW + (n - 1) * 20;
-            const sx = cx - totalW / 2;
-            children.forEach((kp, j) => {
-              kp.x = sx + j * (kpW + 20);
-              kp.y = cy;
-            });
-          }
-        }
-      } else {
-        // Grid layout: subjects in grid, KPs around them
-        const cols = 3;
-        subs.forEach((s, i) => {
-          const row = Math.floor(i / cols);
-          const col = i % cols;
-          s.x = 200 + col * 300;
-          s.y = 150 + row * 250;
-        });
-        kps.forEach((kp, ki) => {
-          const parentEdge = edges.value.find(
-            e => e.toId === kp.id && e.fromId.startsWith('subj-'));
-          const parentSubj = subs.find(s => s.id === (parentEdge?.fromId));
-          const base = parentSubj || { x: 400, y: 300 };
-          const angle = (ki / Math.max(kps.length, 1)) * Math.PI * 2 - Math.PI / 2;
-          kp.x = base.x + Math.cos(angle) * 200;
-          kp.y = base.y + Math.sin(angle) * 200 + 70;
-        });
-      }
-    }
-
-    async function fetchGraph() {
-      try {
-        const data = await apiGet('/api/graph');
-        nodes.value = data.nodes || [];
-        edges.value = data.edges || [];
-        autoLayout('tree');
-        // Auto-expand all subjects on first load
-        const set = new Set();
-        for (const n of data.nodes || []) {
-          if (n.type === 'subject') set.add(n.id);
-        }
-        expandedSubjects.value = set;
-      } catch (e) {
-        console.error('fetchGraph', e);
-      }
-    }
-
-    // ──────── Chat State ────────
-    const messages = ref([]);
+    const { focusPath } = canvas;
+    const agentOpen = ref(true);
     const chatInput = ref('');
+    const messages = ref([]);
     const streaming = ref(false);
     const streamingText = ref('');
     const toolCallText = ref('');
     const taskMode = ref('plan');
     const currentTask = ref(null);
     const chatMsgs = ref(null);
+    const currentUser = ref(null);
+    const theme = ref(localStorage.getItem('domiclaw-theme') || 'dark');
+    const showSettings = ref(false);
+    const settingsModal = ref(false);
 
+    // ── Subject/KP nodes from visibleNodes ──
+    const subjectNodes = computed(() =>
+      canvas.visibleNodes.value.filter(n => n.type === 'subject')
+    );
+    const kpNodes = computed(() =>
+      canvas.visibleNodes.value.filter(n => n.type === 'knowledge_point')
+    );
+    const rootNodes = computed(() =>
+      canvas.nodes.value.filter(n => n.id === 'root')
+    );
+    const cardNodes = computed(() =>
+      canvas.nodes.value.filter(n => n.type === 'card')
+    );
+
+    const toolbarStyle = computed(() => {
+      const shift = agentOpen.value ? 180 : 24;
+      return { left: `calc(50% + ${shift}px)` };
+    });
+
+    function subjectNodeStyle(node) {
+      return { left: node.x + 'px', top: node.y + 'px', width: '140px' };
+    }
+    function kpNodeStyle(node) {
+      const w = 120;
+      let borderColor = '';
+      const kpId = node.id.startsWith('kp-') ? parseInt(node.id.slice(3)) : null;
+      const m = kpId ? canvas.kpMasteryMap.value[kpId] : null;
+      if (m) {
+        if (m.mastery < 0.5) borderColor = '#e05555';
+        else if (m.mastery <= 0.8) borderColor = '#e0c055';
+        else borderColor = '#5a9a5a';
+      }
+      const style = { left: node.x + 'px', top: node.y + 'px', width: w + 'px' };
+      if (borderColor) style.borderColor = borderColor;
+      return style;
+    }
+
+    function masteryColor(val) {
+      if (val < 0.5) return '#e05555';
+      if (val <= 0.8) return '#e0c055';
+      return '#5a9a5a';
+    }
+
+    function rootNodeStyle(node) {
+      return { left: node.x + 'px', top: node.y + 'px', width: '140px' };
+    }
+    function cardNodeStyle(node) {
+      return { left: node.x + 'px', top: node.y + 'px', width: (node.w || 260) + 'px', height: (node.h || 180) + 'px' };
+    }
+    function onRootClick() {
+      canvas.clearFocus();
+      canvas.hideKpCard();
+    }
+
+    // ── Drill-down navigation ──
+    function popToFocus(idx) {
+      canvas.focusPath.value = canvas.focusPath.value.slice(0, idx + 1);
+    }
+
+    function showRootSubjects() {
+      canvas.clearFocus();
+      canvas.hideKpCard();
+      canvas.scale.value = 0.8;
+      canvas.translateX.value = 200;
+      canvas.translateY.value = -700;
+    }
+
+    function onSubjectClick(node) {
+      canvas.onNodeClick(node);
+      autoCenterAfterDrill(node);
+    }
+
+    function onKpClick(node) {
+      canvas.onNodeClick(node);
+      const hasChildren = canvas.hasChildren(node.id);
+      if (hasChildren) autoCenterAfterDrill(node);
+    }
+
+    function autoCenterAfterDrill(node) {
+      const rect = canvas.canvasRef.value?.getBoundingClientRect();
+      if (!rect) return;
+      const cw = rect.width, ch = rect.height;
+      const targetScale = Math.min(0.6, cw / 1600);
+      const nx = cw / 2 - (node.x + 70) * targetScale;
+      const ny = ch / 2 - (node.y + 26) * targetScale;
+      canvas.scale.value = targetScale;
+      canvas.translateX.value = nx;
+      canvas.translateY.value = ny;
+    }
+
+    // ── Reset layout ──
+    function resetLayout() {
+      canvas.clearFocus();
+      showRootSubjects();
+      canvas.fetchGraph();
+      canvas.hideKpCard();
+    }
+
+    // ── Chat ──
     function scrollChat() {
       nextTick(() => {
         const el = chatMsgs.value;
@@ -497,18 +486,14 @@ Vue.createApp({
     async function sendMessage() {
       const text = chatInput.value.trim();
       if (!text || streaming.value) return;
-
       addMessage('user', text);
       chatInput.value = '';
       streaming.value = true;
       streamingText.value = '';
       toolCallText.value = '';
-
-      // General message — send to agent via SSE
       try {
         const r = await apiPost('/api/message', { text });
         if (r.status === 'processing') {
-          // Connect to SSE for streaming response
           connectSSE();
         } else if (r.text) {
           addMessage('bot', r.text);
@@ -530,7 +515,6 @@ Vue.createApp({
     function connectSSE() {
       const es = new EventSource('/api/stream');
       let thinkingText = '';
-
       es.addEventListener('connected', () => {});
       es.addEventListener('status', (e) => {
         const d = JSON.parse(e.data);
@@ -547,29 +531,24 @@ Vue.createApp({
       });
       es.addEventListener('thinking', (e) => {
         thinkingText += e.data ? JSON.parse(e.data).text || '' : '';
-        // Show subtle indicator that model is thinking
-        if (!streamingText.value) streamingText.value = '\u{1F9E0} thinking...';
+        if (!streamingText.value) streamingText.value = '\u{1F9E0} 思考中...';
       });
       es.addEventListener('token', (e) => {
         const d = JSON.parse(e.data);
-        // Clear thinking indicator on first real token
-        if (streamingText.value === '\u{1F9E0} thinking...') streamingText.value = '';
+        if (streamingText.value === '\u{1F9E0} 思考中...') streamingText.value = '';
         streamingText.value += d.text || '';
         scrollChat();
       });
       es.addEventListener('done', (e) => {
         const d = JSON.parse(e.data);
         if (d.status === 'success') {
-          // Save accumulated streaming text as a message if different from done text
           if (streamingText.value && streamingText.value !== d.text) {
             addMessage('bot', streamingText.value);
           }
           const botText = d.text || streamingText.value;
-          // Store thinking collapsed behind a click-to-expand toggle
           const msgIdx = messages.value.length;
           addMessage('bot', botText);
           if (thinkingText) {
-            // Attach hidden thinking to this bot message
             messages.value[msgIdx].thinking = thinkingText;
             messages.value[msgIdx].thinkingShow = false;
           }
@@ -601,29 +580,6 @@ Vue.createApp({
       };
     }
 
-    // ──────── Quiz Popup State (Agent-driven) ────────
-    const quizPopup = ref({
-      show: false,
-      subject: '',
-      sessionId: null,
-      questions: [],
-      oneByOne: false,
-      currentIndex: 0,
-    });
-
-    const currentQuizQ = computed(() => {
-      return quizPopup.value.questions[quizPopup.value.currentIndex] || {};
-    });
-    const showSettings = ref(false);
-    const theme = ref(localStorage.getItem('domiclaw-theme') || 'light');
-    const modelName = ref(localStorage.getItem('domiclaw-model') || '');
-    const currentUser = ref(null);
-
-    async function logout() {
-      await apiPost('/api/auth/logout', {});
-      window.location.href = '/login.html';
-    }
-
     async function endTask() {
       try {
         const r = await apiPost('/api/task/end', {});
@@ -631,251 +587,297 @@ Vue.createApp({
           taskMode.value = r.mode;
           if (r.mode === 'plan') currentTask.value = null;
         }
-      } catch (err) {
-        console.error('Failed to end task:', err);
-      }
+      } catch (err) { console.error('Failed to end task:', err); }
     }
 
     async function checkAuth() {
       try {
         const data = await apiGet('/api/auth/me');
-        if (data.error) {
-          window.location.href = '/login.html';
-          return;
-        }
+        if (data.error) { window.location.href = '/login.html'; return; }
         currentUser.value = data;
-      } catch {
-        window.location.href = '/login.html';
-      }
+      } catch { window.location.href = '/login.html'; }
     }
 
     function applyTheme() {
       document.body.classList.toggle('light', theme.value === 'light');
       localStorage.setItem('domiclaw-theme', theme.value);
     }
-    // Apply on load
     applyTheme();
 
-    const chatVisible = ref(true);
+    async function logout() {
+      await apiPost('/api/auth/logout', {});
+      window.location.href = '/login.html';
+    }
 
-    // ── Mastery map: kp_id → { mastery, total_wrong }
-    const kpMasteryMap = ref({});
+    // ── Quiz Mode (all-at-once) ──
+    const quizMode = ref({
+      active: false,
+      questions: [],
+      source: '',
+      sessionId: null,
+      kpName: '',
+    });
+    const hoveredKpName = ref('');
 
-    // ── Expanded subjects / KP quiz modal
-    const expandedSubjects = ref(new Set());
-    const kpModal = ref({ show: false, loading: false, kpId: null, kpName: '', sessionId: null,
-      questions: [], excludeIds: [], totalExhausted: false });
+    const allAnswered = computed(() =>
+      quizMode.value.active && quizMode.value.questions.length > 0 &&
+      quizMode.value.questions.every(q => q.answered)
+    );
+    const correctCount = computed(() =>
+      quizMode.value.questions.filter(q => q.result === 'correct').length
+    );
 
-    async function fetchMastery() {
+    function typeLabel(type) {
+      const map = { choice: '选择', fill: '填空', calculate: '计算', proof: '证明' };
+      return map[type] || type;
+    }
+
+    async function startKpQuiz(kpId) {
+      canvas.hideKpCard();
       try {
-        const data = await apiGet('/api/user/kp-mastery');
-        const map = {};
-        for (const m of data || []) {
-          map[m.kp_id] = m;
-        }
-        kpMasteryMap.value = map;
-      } catch (e) { console.error('fetchMastery', e); }
+        const data = await apiPost('/api/quiz/create-by-kp', { kp_id: kpId, limit: 5 });
+        if (!data.questions || !data.questions.length) return;
+        enterQuizMode(data.questions, data.session_id, '练一练', data.kp_name || '');
+      } catch (e) { console.error('startKpQuiz', e); }
     }
 
-    // ── Quiz Popup Methods ──
-
-    function handleQuizImage(q, event) {
-      const file = event.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        q.imageUrl = e.target.result;
-        q.imageFile = file;
-      };
-      reader.readAsDataURL(file);
-    }
-
-    function submitQuizAnswer(q) {
-      const answer = q.selected || q.answer;
-      if (!answer && !q.imageUrl) return;
-      q.answered = true;
-      // Will be graded on submitAllQuiz
-      q.result = 'pending';
-    }
-
-    function skipQuizQuestion() {
-      const popup = quizPopup.value;
-      if (popup.currentIndex < popup.questions.length - 1) {
-        popup.currentIndex++;
-      }
-    }
-
-    async function submitAllQuiz() {
-      const popup = quizPopup.value;
-      const answers = popup.questions.map(q => ({
-        questionId: q.id,
-        answer: q.selected || q.answer || '',
-        imageUrl: q.imageUrl || null,
-      }));
+    async function startKpWrongQuiz(kpId) {
+      canvas.hideKpCard();
       try {
-        const data = await apiPost('/api/quiz/submit-batch', {
-          sessionId: popup.sessionId,
-          answers,
-        });
-        if (data.results) {
-          for (const r of data.results) {
-            const q = popup.questions.find(qq => qq.id === r.questionId);
-            if (q) {
-              q.answered = true;
-              q.result = r.correct ? 'correct' : 'wrong';
-              q.explanation = r.explanation;
-            }
-          }
-        }
-        fetchMastery();
-      } catch (e) {
-        console.error('submitAllQuiz', e);
-      }
+        const data = await apiPost('/api/quiz/create-by-kp', { kp_id: kpId, limit: 5, source: 'wrong' });
+        if (!data.questions || !data.questions.length) return;
+        enterQuizMode(data.questions, data.session_id, '纠错', data.kp_name || '');
+      } catch (e) { console.error('startKpWrongQuiz', e); }
     }
 
-    // ── SSE: Listen for quiz_popup events ──
-    function setupQuizPopupListener() {
-      const es = new EventSource('/api/stream');
-      es.addEventListener('quiz_popup', (e) => {
-        const data = JSON.parse(e.data);
-        quizPopup.value = {
-          show: true,
-          subject: data.subject || '',
-          sessionId: data.sessionId,
-          questions: (data.questions || []).map(q => ({
+    function enterQuizMode(questions, sessionId, source, kpName) {
+      function normalizeOptsList(raw) {
+        if (!raw) return [];
+        const parsed = typeof raw === 'string' ? JSON.parse(raw || '[]') : raw;
+        if (Array.isArray(parsed)) {
+          return parsed.map((text, i) => ({ key: String.fromCharCode(65 + i), text }));
+        }
+        return Object.entries(parsed).map(([k, v]) => ({ key: k, text: v }));
+      }
+      function normalizeType(t) {
+        if (!t) return 'short_answer';
+        if (t === 'multiple_choice') return 'choice';
+        return t;
+      }
+      quizMode.value = {
+        active: true,
+        questions: questions.map(q => {
+          const fp = parseFillBlanks(q.text);
+          const arr = fp ? fp.filter(p => p.type === 'input').map(() => '') : null;
+          return {
             ...q,
-            options: typeof q.options === 'string' ? JSON.parse(q.options || '{}') : (q.options || {}),
+            type: normalizeType(q.type),
+            optionsList: normalizeOptsList(q.options),
             answer: '',
+            answerArr: arr,
+            fillParts: fp,
             selected: null,
             answered: false,
             result: null,
             explanation: null,
-            imageUrl: null,
-          })),
-          oneByOne: false,
-          currentIndex: 0,
-        };
-      });
-      // Don't close on done - keep listening for future popups
+          };
+        }),
+        source: source || '',
+        sessionId: sessionId || null,
+        kpName: kpName || questions[0]?.kp_name || '',
+      };
+      hoveredKpName.value = '';
+      agentOpen.value = false;
+      canvas.hideKpCard();
     }
 
-    // ── KP Quiz Modal ──
-
-    async function openKpQuizModal(kpId, kpName) {
-      kpModal.value = { show: true, loading: true, kpId, kpName,
-        sessionId: null, questions: [], excludeIds: [], totalExhausted: false };
-      await loadKpQuiz();
+    function parseFillBlanks(text) {
+      if (!text) return null;
+      const parts = text.split(/(_{3,})/g);
+      if (parts.length <= 1) return null;
+      let idx = 0;
+      return parts.map(p => /^_{3,}$/.test(p) ? { type: 'input', idx: idx++ } : { type: 'text', content: p });
     }
 
-    async function loadKpQuiz() {
-      const m = kpModal.value;
-      m.loading = true;
-      try {
-        const data = await apiPost('/api/quiz/create-by-kp', {
-          kp_id: m.kpId,
-          limit: 5,
-          exclude_ids: m.excludeIds,
-        });
-        if (!data.questions || data.questions.length === 0) {
-          m.totalExhausted = true;
-          if (m.excludeIds.length > 0) {
-            m.questions = []; // no more fresh questions
-          }
-        } else {
-          m.sessionId = data.session_id;
-          m.questions = data.questions.map(q => ({
-            ...q, studentAnswer: '', selected: null, answered: false,
-            result: null, showExp: false, explanation: null,
-          }));
-        }
-      } catch (e) { console.error('loadKpQuiz', e); }
-      m.loading = false;
-    }
-
-    async function refreshKpQuiz() {
-      const m = kpModal.value;
-      // Track seen question IDs to exclude
-      const seenIds = m.questions.map(q => q.id);
-      m.excludeIds = [...new Set([...m.excludeIds, ...seenIds])];
-      await loadKpQuiz();
-    }
-
-    async function submitKpAnswer(q, qi) {
-      const answer = q.selected || q.studentAnswer;
-      if (!answer) return;
-      try {
-        const data = await apiPost('/api/quiz/answer', {
-          session_id: kpModal.value.sessionId,
-          question_id: q.id,
-          answer,
-        });
+    async function submitAllQuiz() {
+      const answers = [];
+      for (const q of quizMode.value.questions) {
+        if (q.answered) continue;
         q.answered = true;
-        q.result = data.correct ? 'correct' : 'wrong';
-        fetchMastery();
-      } catch (e) { console.error('submitKpAnswer', e); }
+        let ans;
+        if (q.type === 'choice') {
+          ans = q.selected;
+        } else if (q.type === 'fill' && q.answerArr) {
+          ans = q.answerArr.map(a => a || '').join(';');
+        } else {
+          ans = q.answer || '';
+        }
+        answers.push({ questionId: q.id, answer: ans != null ? String(ans) : '' });
+      }
+      if (!answers.length) return;
+      try {
+        const data = await apiPost('/api/quiz/submit-batch', {
+          sessionId: quizMode.value.sessionId,
+          answers,
+        });
+        if (data.results) {
+          for (let i = 0; i < data.results.length; i++) {
+            const q = quizMode.value.questions[i];
+            if (q) {
+              q.result = data.results[i].correct ? 'correct' : 'wrong';
+              q.explanation = data.results[i].explanation;
+            }
+          }
+        }
+        canvas.fetchMastery();
+      } catch (e) { console.error('submitAllQuiz', e); }
     }
 
-    async function toggleExplanation(q) {
-      q.showExp = !q.showExp;
-      if (q.showExp && !q.explanation) {
-        // Fetch explanation from API
-        try {
-          const data = await apiGet('/api/question/' + q.id + '/explanation');
-          if (data.explanation) {
-            q.explanation = data.explanation;
-          } else if (data.pending) {
-            // Poll once after a short delay
-            setTimeout(async () => {
-              try {
-                const retry = await apiGet('/api/question/' + q.id + '/explanation');
-                if (retry.explanation) q.explanation = retry.explanation;
-              } catch {}
-            }, 3000);
-          }
-        } catch {}
+    function exitQuizOrRoot() {
+      if (quizMode.value.active) {
+        exitQuizMode();
+      } else {
+        showRootSubjects();
       }
     }
 
-    function finishKpQuiz() {
-      const m = kpModal.value;
-      const answered = m.questions.filter(q => q.answered).length;
-      const correct = m.questions.filter(q => q.result === 'correct').length;
-      addMessage('bot', `KP Quiz "${m.kpName}" finished: ${correct}/${answered} correct.`);
-      kpModal.value.show = false;
+    async function exitQuizMode() {
+      quizMode.value = { active: false, questions: [], source: '', sessionId: null, kpName: '' };
+      agentOpen.value = true;
+      canvas.fetchMastery();
+      showRootSubjects();
     }
 
-    function closeKpModal() {
-      kpModal.value.show = false;
+    // ── Bottom Toolbar Dialogs ──
+
+    // 1号计划
+    const planDialog = ref({ show: false, progress: 40, nextChapter: '有理数的运算' });
+    const planEncourageText = computed(() => {
+      const p = planDialog.value.progress;
+      if (p === 100) return '🎉 太棒了！你已完成全部计划！';
+      if (p >= 70) return `💪 已完成 ${p}%，继续加油，胜利在望！`;
+      if (p >= 40) return `📚 已完成 ${p}%，稳住节奏，一步步来！`;
+      return `🚀 已完成 ${p}%，好的开始是成功的一半！`;
+    });
+
+    async function openPlanDialog() {
+      try {
+        const data = await apiGet('/api/plan/progress');
+        planDialog.value = { show: true, progress: data.progress || 0, nextChapter: data.next_chapter || '未知' };
+      } catch {
+        planDialog.value = { show: true, progress: 40, nextChapter: '有理数的运算' };
+      }
+    }
+
+    function continuePlan() {
+      planDialog.value.show = false;
+      // TODO: navigate to next chapter
+    }
+
+    // 知识强化
+    const weaknessDialog = ref({ show: false, items: [] });
+
+    async function openWeaknessDialog() {
+      weaknessDialog.value.show = true;
+      try {
+        const data = await apiGet('/api/user/kp-mastery');
+        const items = (data || [])
+          .filter(m => m.mastery < 1)
+          .sort((a, b) => a.mastery - b.mastery)
+          .slice(0, 5);
+        weaknessDialog.value.items = items;
+      } catch {
+        weaknessDialog.value.items = [];
+      }
+    }
+
+    async function startWeaknessQuiz(kpId) {
+      weaknessDialog.value.show = false;
+      canvas.hideKpCard();
+      try {
+        const data = await apiPost('/api/quiz/create-by-kp', { kp_id: kpId, limit: 5 });
+        if (data.questions?.length) enterQuizMode(data.questions, data.session_id, '知识强化');
+      } catch (e) { console.error(e); }
+    }
+
+    async function startAllWeaknessQuiz() {
+      weaknessDialog.value.show = false;
+      // Pick first weakness KP
+      if (weaknessDialog.value.items.length) {
+        await startWeaknessQuiz(weaknessDialog.value.items[0].kp_id);
+      }
+    }
+
+    // 错题测试
+    const wrongQuizDialog = ref({ show: false, days: 7, minWrong: 1, total: 0 });
+
+    async function openWrongQuizDialog() {
+      wrongQuizDialog.value.show = true;
+      try {
+        const data = await apiGet('/api/user/wrong-questions?days=7&min_wrong_count=1');
+        wrongQuizDialog.value.total = data.total || 0;
+      } catch {
+        wrongQuizDialog.value.total = 0;
+      }
+    }
+
+    async function startWrongQuiz() {
+      wrongQuizDialog.value.show = false;
+      // TODO: implement wrong quiz creation
+      addMessage('bot', '错题测试功能实现中...');
+    }
+
+    // Settings
+    function openSettings() {
+      settingsModal.value = true;
     }
 
     // ──────── Init ────────
     onMounted(async () => {
       await checkAuth();
-      fetchGraph();
-      fetchMastery();
-      setupQuizPopupListener();
+      canvas.fetchGraph();
+      canvas.fetchMastery();
       addMessage('bot', '你好！我是豆米虾，你的专属学习伙伴。有什么我可以帮你的吗？');
+      showRootSubjects();
     });
 
     return {
-      // Canvas
-      canvasRef, scale, translateX, nodes, edges,
-      canvasTransformStyle, edgesWithLabels,
-      getEdgePath, getEdgeLabelPos, nodeStyle,
-      handleCanvasMouseDown, handleWheel, onNodeClick,
-      autoLayout, fetchGraph,
-      // Settings
-      showSettings, theme, modelName, currentUser, logout, applyTheme,
-      // Chat
-      chatVisible, messages, chatInput, streaming, streamingText, chatMsgs,
+      // Agent panel
+      agentOpen,
+      messages, chatInput, streaming, streamingText, toolCallText, chatMsgs,
       sendMessage, taskMode, currentTask, endTask,
-      // Quiz Popup (Agent-driven)
-      quizPopup, currentQuizQ,
-      handleQuizImage, submitQuizAnswer, skipQuizQuestion, submitAllQuiz,
-      // KP Quiz
-      expandedSubjects, kpModal, visibleNodes, visibleEdges,
-      openKpQuizModal, closeKpModal, refreshKpQuiz, submitKpAnswer,
-      toggleExplanation, finishKpQuiz,
+      currentUser,
+      // Canvas (from canvas.js)
+      canvasRef: canvas.canvasRef,
+      scale: canvas.scale, translateX: canvas.translateX,
+      visibleEdges: canvas.visibleEdges, edgesWithLabels: canvas.edgesWithLabels,
+      canvasTransformStyle: canvas.canvasTransformStyle,
+      getEdgePath: canvas.getEdgePath, getEdgeLabelPos: canvas.getEdgeLabelPos,
+      handleCanvasMouseDown: canvas.handleCanvasMouseDown,
+      handleWheel: canvas.handleWheel,
+      kpMasteryMap: canvas.kpMasteryMap, rootPos: canvas.rootPos,
+      focusPath,
+      toolbarStyle,
+      // Node helpers
+      subjectNodes, kpNodes, rootNodes, cardNodes,
+      subjectNodeStyle, kpNodeStyle, rootNodeStyle, cardNodeStyle, masteryColor,
+      // Subject / KP interaction
+      onSubjectClick, onKpClick, onRootClick, showRootSubjects,
+      resetLayout, popToFocus,
+      // Knowledge card (canvas node)
+      hideKpCard: canvas.hideKpCard,
+      // Quiz mode
+      quizMode, typeLabel,
+      startKpQuiz, startKpWrongQuiz,
+      submitAllQuiz, exitQuizMode, exitQuizOrRoot,
+      allAnswered, correctCount, hoveredKpName,
+      // Dialogs
+      planDialog, planEncourageText, openPlanDialog, continuePlan,
+      weaknessDialog, openWeaknessDialog, startWeaknessQuiz, startAllWeaknessQuiz,
+      wrongQuizDialog, openWrongQuizDialog, startWrongQuiz,
+      settingsModal, openSettings,
+      // Settings/theme
+      theme, applyTheme, logout, showSettings,
       renderContent,
     };
   }

@@ -147,7 +147,7 @@ registerTool("review_answer", {
     const ca = question.answer.trim().toLowerCase();
     const correct =
       question.question_type === "multiple_choice"
-        ? sa === ca
+        ? sa.charAt(0) === ca.charAt(0)
         : sa.includes(ca) || ca.includes(sa);
     updateQuestionStats(question.id, correct);
 

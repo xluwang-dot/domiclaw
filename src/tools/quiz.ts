@@ -37,7 +37,7 @@ import { logger } from "../logger.js";
 function checkAnswer(studentAnswer: string, correctAnswer: string, questionType: string): boolean {
   const sa = studentAnswer.trim().toLowerCase();
   const ca = correctAnswer.trim().toLowerCase();
-  if (questionType === "multiple_choice") return sa === ca;
+  if (questionType === "multiple_choice") return sa.charAt(0) === ca.charAt(0);
   return sa.includes(ca) || ca.includes(sa);
 }
 

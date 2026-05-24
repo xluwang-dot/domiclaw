@@ -22,6 +22,7 @@ import {
   getQuestionsBySubject,
   getActiveQuizSession,
   getQuizSessionAnswers,
+  getQuizSessionById,
   getQuestionById,
   createQuizSession,
   recordQuizAnswer,
@@ -355,6 +356,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     req.session.userId = userId;
     updateActiveSession(userId, req.sessionID);
 
+    // TODO(T073): 注册后自动创建默认学习计划
     logger.info({ userId, username }, "User registered");
     res.json({ id: userId, username, role: "student" });
   });
@@ -853,7 +855,7 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     const ca = question.answer.trim().toLowerCase();
     const correct =
       question.question_type === "multiple_choice"
-        ? sa === ca
+        ? sa.charAt(0) === ca.charAt(0)
         : sa.includes(ca) || ca.includes(sa);
 
     let subjectId = 0;
@@ -888,6 +890,11 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       return;
     }
 
+    if (!getQuizSessionById(sessionId)) {
+      res.status(400).json({ error: "Session not found" });
+      return;
+    }
+
     const results = [];
     for (const a of answers) {
       const question = getQuestionById(a.questionId);
@@ -905,14 +912,24 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
         // 暂时按文本答案判卷
         const sa = (a.answer || "").trim().toLowerCase();
         const ca = question.answer.trim().toLowerCase();
-        correct = question.question_type === "multiple_choice" ? sa === ca : sa.includes(ca) || ca.includes(sa);
+        correct = question.question_type === "multiple_choice"
+          ? sa.charAt(0) === ca.charAt(0)
+          : sa.includes(ca) || ca.includes(sa);
       } else {
         const sa = (a.answer || "").trim().toLowerCase();
         const ca = question.answer.trim().toLowerCase();
-        correct = question.question_type === "multiple_choice" ? sa === ca : sa.includes(ca) || ca.includes(sa);
+        correct = question.question_type === "multiple_choice"
+          ? sa.charAt(0) === ca.charAt(0)
+          : sa.includes(ca) || ca.includes(sa);
       }
 
-      recordQuizAnswer(sessionId, subjectId, a.questionId, a.answer || "", correct);
+      try {
+        recordQuizAnswer(sessionId, subjectId, a.questionId, a.answer || "", correct);
+      } catch (e: any) {
+        logger.error({ sessionId, subjectId, questionId: a.questionId, error: e.message }, "recordQuizAnswer failed");
+        res.status(400).json({ error: e.message || "答题记录失败" });
+        return;
+      }
       if (!correct) recordWrongQuestion(a.questionId, userId, subjectId);
 
       results.push({ questionId: a.questionId, correct, explanation: question.explanation });
@@ -1002,10 +1019,22 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   // POST /api/quiz/create-by-kp
   app.post("/api/quiz/create-by-kp", requireAuth, (req: Request, res: Response) => {
     const userId = req.session.userId!;
-    const { kp_id, limit: qLimit, exclude_ids } = req.body as Record<string, unknown>;
+    const { kp_id, limit: qLimit, exclude_ids, source } = req.body as Record<string, unknown>;
     const kpId = kp_id as number;
     if (!kpId) {
       res.status(400).json({ error: "kp_id required" });
+      return;
+    }
+    // T073: source='wrong' 支持（mock）
+    // TODO: 实现真实错题过滤逻辑
+    if (source === "wrong") {
+      res.json({
+        session_id: 0,
+        kp_id: kpId,
+        source: "wrong",
+        // TODO: 从 user_wrongquestions 查询错题
+        questions: [],
+      });
       return;
     }
     const questions = getQuestionsForKpQuiz(
@@ -1013,17 +1042,43 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       (qLimit as number) || 5,
       exclude_ids as number[] | undefined,
     );
-    const sessionId = createQuizSession(0, userId); // subject_id = 0 for KP quiz
+    // 查找知识点所属学科作为 session subject_id
+    const kpRow = getDatabase().prepare("SELECT subject_id FROM sys_knowledgepoints WHERE id = ?").get(kpId) as { subject_id: number } | undefined;
+    const subjectId = kpRow?.subject_id ?? 1;
+    const sessionId = createQuizSession(subjectId, userId);
     res.json({
       session_id: sessionId,
       kp_id: kpId,
-      questions: questions.map((q) => ({
-        id: q.id,
-        text: q.question_text,
-        type: q.question_type,
-        options: q.options ? JSON.parse(q.options) : null,
-        difficulty: q.difficulty,
-      })),
+      questions: questions.map((q) => {
+        const kp = q.knowledge_point_id ? getKnowledgePointById(q.knowledge_point_id) : null;
+        return {
+          id: q.id,
+          text: q.question_text,
+          type: q.question_type,
+          options: q.options ? JSON.parse(q.options) : null,
+          difficulty: q.difficulty,
+          kp_id: q.knowledge_point_id,
+          kp_name: kp?.title || '',
+        };
+      }),
+    });
+  });
+
+  // GET /api/plan/progress — mock (T073: 替换为真实数据)
+  app.get("/api/plan/progress", requireAuth, (req: Request, res: Response) => {
+    res.json({ has_plan: true, progress: 40, next_chapter: "有理数的运算" });
+  });
+
+  // GET /api/user/wrong-questions — mock (T073: 替换为真实数据)
+  app.get("/api/user/wrong-questions", requireAuth, (req: Request, res: Response) => {
+    const days = parseInt(req.query.days as string, 10) || 7;
+    const minWrong = parseInt(req.query.min_wrong_count as string, 10) || 1;
+    // TODO: 从 user_wrongquestions 表查询真实数据
+    res.json({
+      total: 0,
+      days,
+      min_wrong_count: minWrong,
+      questions: [],
     });
   });
 

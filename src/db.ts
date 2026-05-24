@@ -312,6 +312,7 @@ export function initDatabase(): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);
+  db.pragma("foreign_keys = ON");
 
   // Create all tables
   createSchema(db);
@@ -336,6 +337,7 @@ export function initDatabase(): void {
     `ALTER TABLE knowledge_points ADD COLUMN related_ids TEXT`,
     `ALTER TABLE sys_knowledgepoints ADD COLUMN embedding BLOB`,
     `ALTER TABLE user_sessioncontext ADD COLUMN task_stack TEXT DEFAULT '[]'`,
+    `ALTER TABLE sys_questions ADD COLUMN user_id INTEGER`,
   ]) {
     try { db.exec(stmt); } catch { /* column already exists — skip */ }
   }
@@ -391,6 +393,39 @@ export function initDatabase(): void {
       `);
     }
   } catch { /* already migrated — skip */ }
+
+  // Fix FK references in user_quizbook: old table names → new after rename (T073)
+  try {
+    const hasQuizbook = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='user_quizbook'").get();
+    if (hasQuizbook) {
+      const fkInfo = db.prepare("PRAGMA foreign_key_list('user_quizbook')").all() as any[];
+      const hasOldRefs = fkInfo.some((fk: any) => fk.table === 'questions' || fk.table === 'quiz_sessions');
+      if (hasOldRefs) {
+        db.pragma("foreign_keys = OFF");
+        db.exec(`
+          CREATE TABLE user_quizbook_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quiz_session_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            subject_id INTEGER NOT NULL DEFAULT 0,
+            student_answer TEXT,
+            is_correct INTEGER DEFAULT 0,
+            weak_kp_ids TEXT,
+            solution_steps TEXT,
+            duration_seconds INTEGER,
+            error_reason TEXT,
+            answered_at TEXT NOT NULL,
+            FOREIGN KEY (quiz_session_id) REFERENCES user_quizsessions(id),
+            FOREIGN KEY (question_id) REFERENCES sys_questions(id)
+          );
+          INSERT INTO user_quizbook_new SELECT * FROM user_quizbook;
+          DROP TABLE user_quizbook;
+          ALTER TABLE user_quizbook_new RENAME TO user_quizbook;
+        `);
+        db.pragma("foreign_keys = ON");
+      }
+    }
+  } catch { /* migration already done */ }
 
   // Migrate exercise_points → knowledge_points.exercise_point_names
   try {
@@ -1187,6 +1222,10 @@ export function recordQuizAnswer(
   studentAnswer: string, isCorrect: boolean,
   weakKpIds?: number[],
 ): void {
+  const session = db.prepare("SELECT id, user_id FROM user_quizsessions WHERE id = ?").get(sessionId) as { id: number; user_id: number } | undefined;
+  const question = db.prepare("SELECT id FROM sys_questions WHERE id = ?").get(questionId) as { id: number } | undefined;
+  if (!session) throw new Error(`Quiz session ${sessionId} not found`);
+  if (!question) throw new Error(`Question ${questionId} not found`);
   db.prepare(
     `INSERT INTO user_quizbook (quiz_session_id, subject_id, question_id, student_answer, is_correct, weak_kp_ids, answered_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
