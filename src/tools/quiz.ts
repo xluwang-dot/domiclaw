@@ -23,6 +23,7 @@ import {
   updateQuestionStats,
   getQuestionDifficulty,
   getTestLevelConfig,
+  getQuestionsForKpQuiz,
 } from "../db.js";
 import { setCurrentQuestion, getCurrentQuestion } from "../agent/questionContext.js";
 import { logger } from "../logger.js";
@@ -50,19 +51,21 @@ registerTool("create_quiz", {
       parameters: {
         type: "object",
         properties: {
-          subject: { type: "string", description: "科目名称（例如：数学、物理）" },
+          subject: { type: "string", description: "科目名称（例如：数学、物理）。与 kp_id 同时传入时作为 fallback" },
           question_count: { type: "number", description: "问题数量（默认5个）" },
           knowledge_point: { type: "string", description: "可选：按知识点标题筛选" },
+          kp_id: { type: "number", description: "可选：按知识点 ID 直接筛选（优先级高于 knowledge_point）" },
           min_difficulty: { type: "number", description: "可选：最低难度（0-1），只返回难度不低于此值的题目" },
           max_difficulty: { type: "number", description: "可选：最高难度（0-1），只返回难度不高于此值的题目" },
           test_level: { type: "number", description: "可选：测试等级（1/2/3）。互斥规则：与 question_count 同时传入时，以 question_count 为准，test_level 仅用于推断难度范围（当未指定 min/max_difficulty 时）" },
         },
-        required: ["subject"],
+        required: [],
       },
     },
   },
   async execute(args, ctx) {
-    const subjectName = args.subject as string;
+    const kpId = args.kp_id as number | undefined;
+    const subjectName = (args.subject as string) || "";
     const hasExplicitCount = args.question_count !== undefined;
     let questionCount = (args.question_count as number) || 5;
     const kpFilter = args.knowledge_point as string | undefined;
@@ -92,7 +95,66 @@ registerTool("create_quiz", {
       }
     }
 
-    const subject = getSubjectByName(subjectName);
+    let subject: { id: number; name: string } | undefined;
+
+    // ── kp_id 快速路径：直接查询知识点对应的题目 ──
+    if (kpId) {
+      const kpRow = getDatabase().prepare("SELECT id, title, subject_id FROM sys_knowledgepoints WHERE id = ?").get(kpId) as { id: number; title: string; subject_id: number } | undefined;
+      if (!kpRow) return `Knowledge point ID ${kpId} not found.`;
+      let questions: any[] = getQuestionsForKpQuiz(kpId, ctx.userId, questionCount);
+      // 若无直接关联题目，尝试查子知识点
+      if (questions.length === 0) {
+        const descendantIds = getAllDescendantKpIds(kpId);
+        const allIds = [kpId, ...descendantIds];
+        const placeholders = allIds.map(() => "?").join(",");
+        questions = getDatabase().prepare(`
+          SELECT id, question_text, answer, explanation, difficulty, question_type,
+                 options, knowledge_point_id
+          FROM sys_questions
+          WHERE knowledge_point_id IN (${placeholders})
+            AND (user_id IS NULL OR user_id = ?)
+            AND status = 'published'
+          ORDER BY RANDOM() LIMIT ?
+        `).all(...allIds, ctx.userId, questionCount);
+      }
+      if (questions.length === 0) {
+        return `No questions found for knowledge point "${kpRow.title}".`;
+      }
+      subject = getDatabase().prepare("SELECT id, name FROM sys_subjects WHERE id = ?").get(kpRow.subject_id) as { id: number; name: string } | undefined;
+      if (!subject) subject = { id: kpRow.subject_id, name: "未知学科" };
+      const sessionId = createQuizSession(subject.id, ctx.userId);
+      setCurrentQuestion(ctx.userId, {
+        questionId: questions.length > 0 ? questions[0].id : 0,
+        questionText: questions.length > 0 ? questions[0].question_text : "",
+        sessionId,
+        questions: questions.map((q: any) => ({
+          id: q.id,
+          text: q.question_text,
+          type: q.question_type,
+          options: q.options,
+        })),
+        progress: { currentSubIndex: 0, solvedSubIndices: [], userAnswers: {} },
+      });
+      pushSse(ctx.userId, "quiz_popup", {
+        sessionId, subject: subject.name,
+        questions: questions.map((q: any) => ({
+          id: q.id, text: q.question_text, type: q.question_type, options: q.options,
+        })),
+      });
+      let response = `Quiz started! Subject: ${subject.name}, Session ID: ${sessionId}, Questions: ${questions.length}\n\n`;
+      for (let i = 0; i < questions.length; i++) {
+        response += formatQuestion(i + 1, questions.length, questions[i]);
+        if (i < questions.length - 1) response += "\n";
+      }
+      response += `\nUse record_answer with session_id=${sessionId} and the question ID to submit each answer.`;
+      return response;
+    }
+
+    if (!subjectName) {
+      return `Either "subject" or "kp_id" parameter is required.`;
+    }
+
+    subject = getSubjectByName(subjectName);
     if (!subject) {
       const names = getAllSubjects().map((s) => s.name).join(", ");
       return `Subject "${subjectName}" not found. Available: ${names}`;

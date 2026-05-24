@@ -648,22 +648,56 @@ Vue.createApp({
       return map[type] || type;
     }
 
-    async function startKpQuiz(kpId) {
+    /**
+     * @deprecated 自 T074 起，统一走 Agent 通道（__CARD__ 指令）。
+     * 保留函数签名兼容旧模板引用，内部改为构造 __CARD__ 指令发送。
+     */
+    async function sendCardCommand(toolName, params) {
       canvas.hideKpCard();
+      const parts = [`__CARD__:${toolName}`];
+      for (const [k, v] of Object.entries(params)) {
+        if (v != null) parts.push(`${k}=${encodeURIComponent(String(v))}`);
+      }
+      const cmd = parts.join(':');
       try {
-        const data = await apiPost('/api/quiz/create-by-kp', { kp_id: kpId, limit: 5 });
-        if (!data.questions || !data.questions.length) return;
-        enterQuizMode(data.questions, data.session_id, '练一练', data.kp_name || '');
-      } catch (e) { console.error('startKpQuiz', e); }
+        const r = await apiPost('/api/message', { text: cmd });
+        if (r.text && !r.command) {
+          addMessage('bot', r.text);
+        }
+      } catch (e) { console.error('sendCardCommand', e); }
     }
 
-    async function startKpWrongQuiz(kpId) {
-      canvas.hideKpCard();
-      try {
-        const data = await apiPost('/api/quiz/create-by-kp', { kp_id: kpId, limit: 5, source: 'wrong' });
-        if (!data.questions || !data.questions.length) return;
-        enterQuizMode(data.questions, data.session_id, '纠错', data.kp_name || '');
-      } catch (e) { console.error('startKpWrongQuiz', e); }
+    function getKpName(kpId) {
+      const node = canvas.visibleNodes.value.find(n => n.id === 'kp-' + kpId);
+      return node?.label || '';
+    }
+
+    function getKpSubject(kpId) {
+      const kpNode = canvas.nodes.value.find(n => n.id === 'kp-' + kpId);
+      if (!kpNode) return '';
+      const parentEdge = canvas.edges.value.find(e => e.toId === 'kp-' + kpId);
+      if (parentEdge) {
+        const parentNode = canvas.nodes.value.find(n => n.id === parentEdge.fromId);
+        if (parentNode?.type === 'subject') return parentNode.label;
+      }
+      return '';
+    }
+
+    function startKpQuiz(kpId) {
+      sendCardCommand('create_quiz', {
+        kp_id: kpId,
+        kp_name: getKpName(kpId),
+        subject: getKpSubject(kpId),
+      });
+    }
+
+    function startKpWrongQuiz(kpId) {
+      sendCardCommand('create_quiz', {
+        kp_id: kpId,
+        source: 'wrong',
+        kp_name: getKpName(kpId),
+        subject: getKpSubject(kpId),
+      });
     }
 
     function enterQuizMode(questions, sessionId, source, kpName) {
@@ -758,10 +792,41 @@ Vue.createApp({
     }
 
     async function exitQuizMode() {
+      const sessionId = quizMode.value.sessionId;
+      const correct = correctCount.value;
+      const total = quizMode.value.questions.length;
+      const kpName = quizMode.value.kpName || '测验';
+
       quizMode.value = { active: false, questions: [], source: '', sessionId: null, kpName: '' };
       agentOpen.value = true;
       canvas.fetchMastery();
       showRootSubjects();
+
+      // 自动通知 Agent 分析测验结果
+      if (sessionId && total > 0) {
+        const msg = `[系统] 用户完成了「${kpName}」测验 (session_id=${sessionId})：答对 ${correct}/${total} 题。请分析测验结果并给出学习建议。`;
+        await sendSystemMessage(msg);
+      }
+    }
+
+    async function sendSystemMessage(text) {
+      if (streaming.value) return;
+      addMessage('user', text);
+      streaming.value = true;
+      streamingText.value = '';
+      toolCallText.value = '';
+      try {
+        const r = await apiPost('/api/message', { text });
+        if (r.status === 'processing') {
+          connectSSE();
+        } else if (r.text) {
+          addMessage('bot', r.text);
+          streaming.value = false;
+        }
+      } catch (e) {
+        addMessage('bot', 'Error: ' + (e.message || 'Unknown'));
+        streaming.value = false;
+      }
     }
 
     // ── Bottom Toolbar Dialogs ──
@@ -807,20 +872,23 @@ Vue.createApp({
       }
     }
 
-    async function startWeaknessQuiz(kpId) {
+    /**
+     * @deprecated 自 T074 起，统一走 Agent 通道（__CARD__ 指令）。
+     * 保留函数签名兼容旧模板引用。
+     */
+    function startWeaknessQuiz(kpId) {
       weaknessDialog.value.show = false;
-      canvas.hideKpCard();
-      try {
-        const data = await apiPost('/api/quiz/create-by-kp', { kp_id: kpId, limit: 5 });
-        if (data.questions?.length) enterQuizMode(data.questions, data.session_id, '知识强化');
-      } catch (e) { console.error(e); }
+      sendCardCommand('create_quiz', {
+        kp_id: kpId,
+        kp_name: getKpName(kpId),
+        subject: getKpSubject(kpId),
+      });
     }
 
-    async function startAllWeaknessQuiz() {
+    function startAllWeaknessQuiz() {
       weaknessDialog.value.show = false;
-      // Pick first weakness KP
       if (weaknessDialog.value.items.length) {
-        await startWeaknessQuiz(weaknessDialog.value.items[0].kp_id);
+        startWeaknessQuiz(weaknessDialog.value.items[0].kp_id);
       }
     }
 
@@ -855,7 +923,38 @@ Vue.createApp({
       canvas.fetchMastery();
       addMessage('bot', '你好！我是豆米虾，你的专属学习伴侣。有什么我可以帮你的吗？');
       showRootSubjects();
+      initSystemSSE();
     });
+
+    // 持久 SSE 连接：接收 quiz_popup、mode_change 等系统事件
+    function initSystemSSE() {
+      const es = new EventSource('/api/stream');
+      let reconnectTimer = null;
+
+      es.addEventListener('connected', () => {});
+
+      es.addEventListener('quiz_popup', (e) => {
+        const d = JSON.parse(e.data);
+        if (d.questions?.length) {
+          enterQuizMode(d.questions, d.sessionId, d.subject || 'Agent测验', d.subject || '');
+        }
+      });
+
+      es.addEventListener('mode_change', (e) => {
+        const d = JSON.parse(e.data);
+        taskMode.value = d.mode;
+        if (d.taskStack && d.taskStack.length > 0) {
+          currentTask.value = d.taskStack[d.taskStack.length - 1];
+        } else {
+          currentTask.value = null;
+        }
+      });
+
+      es.onerror = () => {
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(initSystemSSE, 3000);
+      };
+    }
 
     return {
       // Agent panel

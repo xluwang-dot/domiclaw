@@ -3,6 +3,9 @@
  *
  * 对用户的查询类问题，优先从缓存查找匹配的查询方案并执行。
  * 缓存未命中时调用一次轻量 LLM 分类，执行后自动缓存。
+ *
+ * __CARD__ 指令：画布操作统一入口，在 routeViaCache 最顶部被拦截，
+ * 直接调用工具执行，不查缓存、不走 LLM。
  */
 import { nonStreamingApiCall } from "./agent/model.js";
 import {
@@ -21,6 +24,8 @@ import {
   getSubjectByName,
   getAllSubjects,
 } from "./db.js";
+import { getTool, getAllToolDefinitions } from "./tools/index.js";
+import { ToolContext } from "./types.js";
 
 export interface QueryResult {
   intent: string;
@@ -34,6 +39,11 @@ export interface QueryResult {
 export async function routeViaCache(
   userInput: string, userId: number, assistantName: string,
 ): Promise<string | null> {
+  // ── __CARD__ 指令拦截：画布操作直接执行工具，跳过缓存和 LLM ──
+  if (userInput.startsWith("__CARD__:")) {
+    return handleCardCommand(userInput, userId);
+  }
+
   const input = userInput.trim().toLowerCase();
 
   // Skip cache for plan/creation conversations — follow-up messages need Agent context
@@ -244,4 +254,53 @@ async function executeOperation(
 function renderBar(pct: number): string {
   const filled = Math.round(pct / 10);
   return "[" + "\u2588".repeat(filled) + "\u2591".repeat(10 - filled) + `] ${pct}%`;
+}
+
+// ── Card Command (画布操作统一指令) ──
+
+/**
+ * 解析 __CARD__:tool_name:key=value:... 格式的指令
+ */
+export function parseCardCommand(text: string): { toolName: string; params: Record<string, unknown> } | null {
+  if (!text.startsWith("__CARD__:")) return null;
+  const inner = text.slice("__CARD__:".length);
+  if (!inner) return null;
+  const pairs = inner.split(":");
+  const toolName = pairs[0];
+  if (!toolName) return null;
+
+  const params: Record<string, unknown> = {};
+  for (let i = 1; i < pairs.length; i++) {
+    const eqIdx = pairs[i].indexOf("=");
+    if (eqIdx <= 0) continue;
+    const key = pairs[i].slice(0, eqIdx);
+    let value: string | number = pairs[i].slice(eqIdx + 1).replace(/^"|"$/g, "");
+    if (/^\d+$/.test(value as string)) value = parseInt(value as string, 10);
+    params[key] = value;
+  }
+  return { toolName, params };
+}
+
+/**
+ * 处理画布卡片指令：解析 → 直接执行工具 → 返回友好提示
+ */
+async function handleCardCommand(
+  text: string, userId: number,
+): Promise<string | null> {
+  const parsed = parseCardCommand(text);
+  if (!parsed) return null;
+
+  logger.info({ tool: parsed.toolName, params: parsed.params }, "[CARD] 画布指令解析");
+
+  const tool = getTool(parsed.toolName);
+  if (!tool) {
+    const names = getAllToolDefinitions().map(t => t.function.name).join(", ");
+    return `Error: unknown tool "${parsed.toolName}". Available: ${names}`;
+  }
+
+  const ctx: ToolContext = { workspaceDir: "", userId };
+  const result = await tool.execute(parsed.params, ctx);
+
+  logger.info({ tool: parsed.toolName, resultLen: result.length }, "[CARD] 工具执行完成");
+  return result;
 }

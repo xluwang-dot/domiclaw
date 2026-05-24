@@ -154,13 +154,21 @@ lines.push("- 调用 create_quiz 工具后，你必须在回复中逐题列出�
 lines.push("- 回复格式要求：每个题目独占一个段落，以\"**第N题**\"开头，完整显示题目文字和选项，让用户能看到完整的题目内容才能作答。");
 lines.push("- 如果题目数量超过 5 题，你可以先展示所有题目再附总结，但不允许省略任何题目的完整内容。");
 lines.push("");
-lines.push("## 6. 冲突解决规则（必须遵守）");
+lines.push("## 6. 系统通知处理规则（必须遵守）");
+lines.push("- 当收到以「[系统] 用户完成了」开头的消息时，消息中已包含测验的核心统计信息（正确数/总题数、session_id、知识点名称）。");
+lines.push("- 你**不必**调用 get_quiz_session 查询详情——消息里已有足够数据。");
+lines.push("- 直接根据已有信息分析：正确率评估、薄弱点判断。");
+lines.push("- 如需获取用户整体掌握情况，调用 get_study_stats。");
+lines.push("- 如需查找知识点讲解内容，调用 search_knowledge。");
+lines.push("");
+lines.push("## 7. 冲突解决规则（必须遵守）");
 lines.push("当本文件中的多条规则互相冲突时，按以下优先级执行：");
 lines.push("1. 纠错与重试规则（用户实时反馈 > 预设规则）");
 lines.push("2. 出题规则");
-lines.push("3. 出题展示规则");
-lines.push("4. 讲解规则");
-lines.push("5. AGENT.md 中的常规指令");
+lines.push("3. 系统通知处理规则");
+lines.push("4. 出题展示规则");
+lines.push("5. 讲解规则");
+lines.push("6. AGENT.md 中的常规指令");
 lines.push("");
   return { systemPrompt: lines.join("\n"), ragCount };
 }

@@ -76,8 +76,10 @@ export function createSchema(database: Database.Database): void {
       options TEXT,
       status TEXT NOT NULL DEFAULT 'published',
       created_at TEXT NOT NULL,
+      user_id INTEGER,
       FOREIGN KEY (knowledge_point_id) REFERENCES sys_knowledgepoints(id)
     );
+    CREATE INDEX IF NOT EXISTS idx_questions_user ON sys_questions(user_id);
 
     CREATE TABLE IF NOT EXISTS user_quizsessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

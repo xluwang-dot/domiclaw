@@ -482,6 +482,8 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
 
     logger.info({ userId, text: text.substring(0, 200) }, "用户消息");
 
+    const isCardCommand = text.startsWith("__CARD__:");
+
     const msg: NewMessage = {
       id: `web-${Date.now()}`,
       sender: "web-user",
@@ -491,7 +493,10 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
       is_from_me: false,
     };
 
-    storeMessage(msg, userId);
+    // 画布指令不存原始文本为消息
+    if (!isCardCommand) {
+      storeMessage(msg, userId);
+    }
 
     if (!defaultLimiter.check(String(userId))) {
       pushSse(userId, "done", { status: "error", error: "Rate limited. Please slow down." });
@@ -522,6 +527,23 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
     // AQC layer — try cached/natural-language query first
     const aqcResult = await routeViaCache(text, userId, ASSISTANT_NAME);
     if (aqcResult !== null) {
+      // ── 画布指令结果：直接存储并返回（工具已在 routeViaCache 中执行）──
+      if (isCardCommand) {
+        const cardMsg = `[画布] ${aqcResult}`;
+        const botMsg: NewMessage = {
+          id: `web-card-${Date.now()}`,
+          sender: ASSISTANT_NAME,
+          sender_name: ASSISTANT_NAME,
+          content: cardMsg,
+          timestamp: new Date().toISOString(),
+          is_bot_message: true,
+        };
+        storeMessage(botMsg, userId);
+        onAgentProcessed?.(msg.timestamp);
+        res.json({ status: "ok", text: cardMsg });
+        return;
+      }
+
       // Check for create_quiz directive from AQC
       if (aqcResult.startsWith("__CREATE_QUIZ__:")) {
         const paramsStr = aqcResult.slice("__CREATE_QUIZ__:".length);
@@ -1017,6 +1039,11 @@ export function startWebServer(onAgentProcessed?: (timestamp: string) => void): 
   });
 
   // POST /api/quiz/create-by-kp
+  /**
+   * @deprecated 自 T074 起，所有画布操作统一走 Agent 通道（__CARD__ 指令）。
+   * 通过 POST /api/message 发送 __CARD__:create_quiz:kp_id=X 替代。
+   * 保留此端点为兼容旧前端，后续版本移除。
+   */
   app.post("/api/quiz/create-by-kp", requireAuth, (req: Request, res: Response) => {
     const userId = req.session.userId!;
     const { kp_id, limit: qLimit, exclude_ids, source } = req.body as Record<string, unknown>;
